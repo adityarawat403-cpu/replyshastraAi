@@ -52,7 +52,7 @@ def get_ai_reply(user_message):
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are a MALE Indian texting expert. You help boys reply to girls. Give ONLY 1 short WhatsApp-ready Hinglish message. Max 2 lines. No options. No explanation."
+                        "content": "You are a male Indian texting expert. Reply with ONLY 1 short Hinglish WhatsApp message (max 2 lines). No explanation."
                     },
                     {
                         "role": "user",
@@ -66,35 +66,35 @@ def get_ai_reply(user_message):
         )
 
         data = response.json()
-        print("OPENROUTER RAW:", data)
+        print("AI RAW:", data)
 
-        # ======= SMART PARSER (VERY IMPORTANT FIX) =======
+        # -------- NEW UNIVERSAL PARSER --------
         if "choices" in data:
 
             message = data["choices"][0].get("message", {})
 
-            # normal models
+            # 1️⃣ Normal models (GPT-3.5 style)
             if isinstance(message.get("content"), str):
                 if message["content"].strip():
                     return message["content"]
 
-            # reasoning models (new format)
+            # 2️⃣ Claude / GPT-5 / reasoning models
             if isinstance(message.get("content"), list):
-                collected = ""
+                final_text = ""
                 for part in message["content"]:
-                    if isinstance(part, dict) and "text" in part:
-                        collected += part["text"]
-                if collected.strip():
-                    return collected
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        final_text += part.get("text", "")
+                if final_text.strip():
+                    return final_text
 
-            # rare fallback
+            # 3️⃣ Rare fallback
             if "text" in data["choices"][0]:
                 return data["choices"][0]["text"]
 
         return "Ek sec... fir bhej 🙂"
 
     except Exception as e:
-        print("AI ERROR:", e)
+        print("ERROR:", e)
         return "Server busy hai... 1 min baad try kar 🙂"
 
 
