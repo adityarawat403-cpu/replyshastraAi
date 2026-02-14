@@ -4,38 +4,48 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+HF_TOKEN = os.environ.get("HF_TOKEN")
 
-# ---------- reply function ----------
-def generate_reply(user_text):
-    return f"Tumne bola: {user_text}"
+# ----------- AI FUNCTION -----------
+def generate_reply(user_message):
+    API_URL = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-# ---------- ROOT ----------
-@app.route("/", methods=["GET"])
-def home():
-    return "Bot Alive"
+    payload = {
+        "inputs": user_message
+    }
 
-# ---------- WEBHOOK ----------
+    try:
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+        data = response.json()
+
+        if isinstance(data, list):
+            return data[0]["generated_text"]
+        else:
+            return "Soch raha hu... phir se bhejo 🤔"
+    except:
+        return "Server busy hai, thodi der me try karo 😅"
+
+# ----------- TELEGRAM WEBHOOK -----------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
 
-    if not data:
-        return "no data"
+    if "message" not in data:
+        return "ok"
 
-    message = data.get("message")
-    if not message:
-        return "no message"
-
+    message = data["message"]
     chat_id = message["chat"]["id"]
     text = message.get("text", "")
 
     if text == "/start":
-        reply = "ReplyShastra Bot Active 🔥"
+        reply = "ReplyShastra Bot Active 🔥\nMujhse kuch bhi baat karo 😎"
     else:
         reply = generate_reply(text)
 
-    send_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+
     requests.post(send_url, json={
         "chat_id": chat_id,
         "text": reply
@@ -43,7 +53,7 @@ def webhook():
 
     return "ok"
 
-# ---------- RAILWAY PORT ----------
+# ----------- RAILWAY PORT -----------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
