@@ -4,11 +4,12 @@ import os
 
 app = Flask(__name__)
 
+# Tokens
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-SITE_URL = os.getenv("SITE_URL")
 
 
+# Telegram ko reply bhejne ka function
 def send_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
@@ -18,47 +19,45 @@ def send_message(chat_id, text):
     requests.post(url, json=payload)
 
 
+# AI se reply lene ka function
 def get_ai_reply(user_message):
     try:
         response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            url="https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": SITE_URL,
-                "User-Agent": "ReplyShastraBot"
+                "HTTP-Referer": "https://telegram.org",
+                "X-Title": "ReplyShastra"
             },
             json={
-                "model": "mistralai/mistral-7b-instruct:free",
+                "model": "openrouter/auto",
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are a real human-like Indian chat assistant. Reply in natural Hinglish, emotional, short and practical like WhatsApp chat. Never long paragraphs."
+                        "content": "You are a smart Indian relationship and chatting assistant. Reply in natural Hinglish like a real human. Replies should be emotional, short and practical. No long paragraphs."
                     },
                     {
                         "role": "user",
                         "content": user_message
                     }
-                ],
-                "temperature": 0.9,
-                "max_tokens": 250
+                ]
             },
             timeout=90
         )
 
         data = response.json()
-        print("OPENROUTER RESPONSE:", data)
 
         if "choices" in data:
             return data["choices"][0]["message"]["content"]
-
-        return "Network slow hai... ek baar aur bhejo 🙂"
+        else:
+            return "AI busy hai thoda... 20 sec baad fir bhejo 🙂"
 
     except Exception as e:
         print("ERROR:", e)
-        return "Server thoda busy hai... 20 sec baad try karo 🙂"
+        return "Server connect nahi ho pa raha... thodi der baad try karo 🙂"
 
 
+# Telegram webhook
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
@@ -74,10 +73,12 @@ def webhook():
     return "ok"
 
 
+# Home check
 @app.route("/")
 def home():
     return "ReplyShastra AI Running 🚀"
 
 
+# Run server
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
