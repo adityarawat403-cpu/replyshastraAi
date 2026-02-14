@@ -7,25 +7,42 @@ app = Flask(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+# -------- USER MEMORY --------
+users = {}
 
-# ---------------- TELEGRAM SEND ----------------
+
+# -------- TELEGRAM SEND --------
 def send_message(chat_id, text):
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": text
-        }
-        requests.post(url, json=payload, timeout=20)
-    except:
-        pass
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    requests.post(url, json=payload)
 
 
-# ---------------- AI REPLY ----------------
-def get_ai_reply(user_message):
+# -------- AI ADVICE --------
+def get_advice(problem_text):
 
-    # fallback (VERY IMPORTANT)
-    fallback = "Thoda ruk jaan… soch ke likh raha hu 🙂"
+    prompt = f"""
+You are an Indian relationship expert friend (not AI, not assistant).
+
+Your job:
+Help a boy handle his relationship situation.
+
+Give:
+1) Clear emotional understanding
+2) Practical steps
+3) 2–3 ready-to-send WhatsApp messages he can copy
+
+Write in natural Hinglish.
+Friendly tone.
+Not robotic.
+Not formal.
+
+User problem:
+{problem_text}
+"""
 
     try:
         response = requests.post(
@@ -36,76 +53,83 @@ def get_ai_reply(user_message):
             },
             json={
                 "model": "openrouter/auto",
-                "temperature": 0.8,
-                "max_tokens": 120,
+                "temperature": 0.9,
+                "max_tokens": 600,
                 "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a 23 year old Indian boy chatting with his girlfriend on WhatsApp. You are NOT an assistant. Write the exact message he should send. Only ONE short Hinglish message. Max 2 lines. No advice. No explanation. No lists. No options. Only sendable WhatsApp text."
-                    },
-                    {
-                        "role": "user",
-                        "content": user_message
-                    }
+                    {"role": "user", "content": prompt}
                 ]
             },
-            timeout=45
+            timeout=60
         )
 
         data = response.json()
-        print("OPENROUTER:", data)
 
-        # -------- SMART PARSER (MAIN FIX) --------
-        if "choices" in data and len(data["choices"]) > 0:
-            msg = data["choices"][0]["message"]
+        if "choices" in data:
+            return data["choices"][0]["message"]["content"]
 
-            # normal response
-            if "content" in msg and msg["content"]:
-                return msg["content"].strip()
+        return "Thoda network slow hai... dubara bhej 🙂"
 
-        return fallback
-
-    except Exception as e:
-        print("AI ERROR:", e)
-        return fallback
+    except:
+        return "Server busy hai... 1 min baad fir try kar 🙂"
 
 
-# ---------------- WEBHOOK ----------------
+# -------- WEBHOOK --------
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    try:
-        data = request.json
+    data = request.json
 
-        if not data:
-            return "ok"
+    if "message" not in data:
+        return "ok"
 
-        if "message" not in data:
-            return "ok"
+    message = data["message"]
+    chat_id = message["chat"]["id"]
 
-        message = data["message"]
+    if "text" not in message:
+        return "ok"
 
-        if "text" not in message:
-            return "ok"
+    text = message["text"].lower()
 
-        chat_id = message["chat"]["id"]
-        user_message = message["text"]
+    # -------- START --------
+    if text == "/start":
+        users[chat_id] = "waiting_problem"
 
-        reply = get_ai_reply(user_message)
-        send_message(chat_id, reply)
+        send_message(chat_id,
+"""Hi! Main ReplyShastra AI hoon 😊
+
+Main help kar sakta hoon:
+• GF se baat kaise kare
+• Crush ko kaise approach kare
+• GF naraz ho to kaise manaye
+• Breakup situation handle
+• Seen ignore problem
+
+Apni situation detail me batao 👇
+(Main exact solution + ready messages dunga)""")
 
         return "ok"
 
-    except Exception as e:
-        print("WEBHOOK ERROR:", e)
+
+    # -------- USER SENT PROBLEM --------
+    if chat_id in users and users[chat_id] == "waiting_problem":
+
+        send_message(chat_id, "Samajh raha hoon... 5 sec do, proper solution likh raha hoon ✍️")
+
+        advice = get_advice(text)
+
+        send_message(chat_id, advice)
+
         return "ok"
 
 
-# ---------------- HEALTH ----------------
+    # -------- DEFAULT --------
+    send_message(chat_id, "Pehle /start likho 🙂")
+    return "ok"
+
+
 @app.route("/")
 def home():
     return "ReplyShastra Running"
 
 
-# ---------------- RUN ----------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
