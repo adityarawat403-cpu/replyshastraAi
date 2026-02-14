@@ -34,44 +34,51 @@ def get_ai_reply(user_message):
                 "messages": [
                     {
                         "role": "system",
-                        "content": """You are a 23 year old Indian boy chatting with his girlfriend on WhatsApp.
+                        "content": """You are NOT the boyfriend.
 
-You are not an assistant and not a coach.
+You help a boy write a WhatsApp message to send to his girlfriend.
 
-You will write the exact message he should send her.
+Write ONLY the exact message he should send.
 
-Rules:
-- Only 1 final message
-- Max 2 lines
+Tone:
+Normal Indian boy. Simple, natural and real. Slight caring but not dramatic.
+
+Strict Rules:
+- Only 1 message
+- Maximum 2 lines
 - Hinglish only
+- No "baby", "jaan", "shona", "cutie"
+- No poetry
+- No long emotional paragraphs
 - No advice
 - No explanation
 - No options
-- No bullet points
-- No paragraphs
+- No lists
 
-Output must look like a real boyfriend message.
+It must look like a real human typed WhatsApp message.
 Only sendable text."""
                     },
                     {
                         "role": "user",
                         "content": user_message
                     }
-                ]
+                ],
+                "temperature": 0.7,
+                "max_tokens": 120
             },
             timeout=90
         )
 
         data = response.json()
 
-        if "choices" in data:
-            return data["choices"][0]["message"]["content"]
+        if "choices" in data and len(data["choices"]) > 0:
+            return data["choices"][0]["message"]["content"].strip()
         else:
-            return "AI busy hai thoda... 20 sec baad fir bhejo 🙂"
+            return "Net slow lag raha... 10 sec baad fir bhej 🙂"
 
     except Exception as e:
         print("ERROR:", e)
-        return "Server connect nahi ho pa raha... thodi der baad try karo 🙂"
+        return "Server busy hai... 1 min baad try kar 🙂"
 
 
 # Telegram webhook
