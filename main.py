@@ -9,42 +9,35 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# =============== TEXT CLEANER (VERY IMPORTANT) ===============
+# =============== TEXT CLEANER ===============
 def clean_text(text):
     if not text:
         return "Hmm... dubara bhejo 🙂"
 
-    # remove markdown / weird symbols (Telegram drop issue fix)
-    text = text.replace("*", "")
-    text = text.replace("_", "")
-    text = text.replace("`", "")
-    text = text.replace("#", "")
-    text = text.replace("<", "")
-    text = text.replace(">", "")
-    text = text.replace("[", "")
-    text = text.replace("]", "")
+    text = str(text)
 
-    # telegram limit safety
+    # markdown & telegram breaking symbols remove
+    bad = ["*", "_", "`", "#", "<", ">", "[", "]", "(", ")", "{", "}"]
+    for b in bad:
+        text = text.replace(b, "")
+
     return text[:350]
 
 
-# =============== TELEGRAM SEND MESSAGE ===============
+# =============== TELEGRAM SEND ===============
 def send_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-    safe_text = clean_text(text)
-
     payload = {
         "chat_id": chat_id,
-        "text": safe_text,
-        "parse_mode": "HTML"
+        "text": clean_text(text)
     }
 
     r = requests.post(url, json=payload)
     print("TELEGRAM RESPONSE:", r.text)
 
 
-# =============== AI REPLY FUNCTION ===============
+# =============== AI REPLY (REAL FIX) ===============
 def get_ai_reply(user_message):
     try:
         response = requests.post(
@@ -60,11 +53,12 @@ def get_ai_reply(user_message):
                     {
                         "role": "system",
                         "content": (
-                            "You are a male Indian relationship texting expert. "
-                            "Reply like a real Indian guy in natural Hinglish. "
-                            "Keep replies SHORT (1-2 lines max). "
-                            "No paragraphs. No options. No explanations. "
-                            "Direct ready-to-send WhatsApp message only."
+                            "You are a male Indian texting expert. "
+                            "You help boys reply to girls. "
+                            "Always reply like a boy, not like a girl. "
+                            "Give ONLY 1 short WhatsApp ready message in Hinglish. "
+                            "Maximum 2 lines. "
+                            "No options. No explanations. No paragraphs."
                         )
                     },
                     {
@@ -72,29 +66,41 @@ def get_ai_reply(user_message):
                         "content": user_message
                     }
                 ],
-                "temperature": 0.8,
+                "temperature": 0.7,
                 "max_tokens": 120
             },
             timeout=90
         )
 
         data = response.json()
-        print("OPENROUTER RESPONSE:", data)
+        print("OPENROUTER RAW:", data)
 
+        # -------- SMART PARSER (MAIN BUG FIX) --------
         if "choices" in data:
-            return data["choices"][0]["message"]["content"]
-        else:
-            return "Thoda network slow hai... 20 sec baad bhejo 🙂"
+            msg = data["choices"][0]["message"]
+
+            # normal string response
+            if isinstance(msg.get("content"), str) and msg["content"].strip():
+                return msg["content"]
+
+            # array format response (OpenRouter sometimes)
+            if isinstance(msg.get("content"), list):
+                for part in msg["content"]:
+                    if isinstance(part, dict) and "text" in part:
+                        return part["text"]
+
+        return "Network slow lag raha... 10 sec baad fir bhej 🙂"
 
     except Exception as e:
         print("ERROR:", e)
-        return "Server connect nahi ho pa raha... thodi der baad try karo 🙂"
+        return "Server busy hai... 1 min baad try kar 🙂"
 
 
 # =============== TELEGRAM WEBHOOK ===============
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
+    print("INCOMING:", data)
 
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
