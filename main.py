@@ -7,53 +7,60 @@ app = Flask(__name__)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 HF_TOKEN = os.environ.get("HF_TOKEN")
 
-# ----------- AI FUNCTION -----------
-def generate_reply(user_message):
-    API_URL = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+# HuggingFace FREE model
+API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
+
+headers = {
+    "Authorization": f"Bearer {HF_TOKEN}"
+}
+
+def generate_reply(user_text):
+
+    prompt = f"""
+Give a short WhatsApp reply message (1-2 lines only).
+No explanation.
+User message: {user_text}
+Reply:
+"""
 
     payload = {
-        "inputs": user_message
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 60,
+            "temperature": 0.8
+        }
     }
 
+    response = requests.post(API_URL, headers=headers, json=payload)
+
     try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
-        data = response.json()
-
-        if isinstance(data, list):
-            return data[0]["generated_text"]
-        else:
-            return "Soch raha hu... phir se bhejo 🤔"
+        result = response.json()
+        reply = result[0]["generated_text"].split("Reply:")[-1].strip()
+        return reply if reply else "hmm samjha... thoda aur bata"
     except:
-        return "Server busy hai, thodi der me try karo 😅"
+        return "hmm... network slow hai, ek baar aur bhejo"
 
-# ----------- TELEGRAM WEBHOOK -----------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
 
-    if "message" not in data:
-        return "ok"
+    if "message" in data and "text" in data["message"]:
+        chat_id = data["message"]["chat"]["id"]
+        text = data["message"]["text"]
 
-    message = data["message"]
-    chat_id = message["chat"]["id"]
-    text = message.get("text", "")
+        if text == "/start":
+            reply = "ReplyShastra AI Ready 🔥\nMessage bhejo."
+        else:
+            reply = generate_reply(text)
 
-    if text == "/start":
-        reply = "ReplyShastra Bot Active 🔥\nMujhse kuch bhi baat karo 😎"
-    else:
-        reply = generate_reply(text)
-
-    send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-
-    requests.post(send_url, json={
-        "chat_id": chat_id,
-        "text": reply
-    })
+        send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        requests.post(send_url, json={
+            "chat_id": chat_id,
+            "text": reply
+        })
 
     return "ok"
 
-# ----------- RAILWAY PORT -----------
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+@app.route("/", methods=["GET"])
+def home():
+    return "Bot Running"
