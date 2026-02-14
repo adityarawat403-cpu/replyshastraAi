@@ -34,7 +34,7 @@ def get_ai_reply(user_message):
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are a 23 year old Indian boy chatting with his girlfriend on WhatsApp.
+                        "content": """You are a 23 year old Indian boy chatting with his girlfriend on WhatsApp.
 
 You are not an assistant and not a coach.
 
@@ -51,7 +51,7 @@ Rules:
 - No paragraphs
 
 Output must look like a real boyfriend message.
-Do not guide. Do not teach. Only sendable text. be emotional, short and practical. No long paragraphs."
+Only sendable text."""
                     },
                     {
                         "role": "user",
