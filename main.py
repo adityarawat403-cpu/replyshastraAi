@@ -29,7 +29,7 @@ def get_ai_reply(user_message):
                 "User-Agent": "ReplyShastraBot"
             },
             json={
-                "model": "deepseek/deepseek-chat:free",
+                "model": "mistralai/mistral-7b-instruct:free",
                 "messages": [
                     {
                         "role": "system",
