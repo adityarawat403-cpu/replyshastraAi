@@ -4,23 +4,29 @@ import os
 
 app = Flask(__name__)
 
-# Tokens
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# Telegram ko reply bhejne ka function
+# ---------------- TELEGRAM SEND ----------------
 def send_message(chat_id, text):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text
-    }
-    requests.post(url, json=payload)
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": text
+        }
+        requests.post(url, json=payload, timeout=20)
+    except:
+        pass
 
 
-# AI se reply lene ka function
+# ---------------- AI REPLY ----------------
 def get_ai_reply(user_message):
+
+    # fallback (VERY IMPORTANT)
+    fallback = "Thoda ruk jaan… soch ke likh raha hu 🙂"
+
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -30,12 +36,12 @@ def get_ai_reply(user_message):
             },
             json={
                 "model": "openrouter/auto",
-                "temperature": 0.7,
+                "temperature": 0.8,
                 "max_tokens": 120,
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are a 23 year old Indian boy chatting with his girlfriend on WhatsApp. You are NOT an assistant. You write the exact message he should send her. Only 1 message, maximum 2 lines, Hinglish only, emotional, natural human texting style. No advice, no explanation, no lists, no options. Only sendable WhatsApp text."
+                        "content": "You are a 23 year old Indian boy chatting with his girlfriend on WhatsApp. You are NOT an assistant. Write the exact message he should send. Only ONE short Hinglish message. Max 2 lines. No advice. No explanation. No lists. No options. Only sendable WhatsApp text."
                     },
                     {
                         "role": "user",
@@ -43,26 +49,35 @@ def get_ai_reply(user_message):
                     }
                 ]
             },
-            timeout=60
+            timeout=45
         )
 
         data = response.json()
+        print("OPENROUTER:", data)
 
+        # -------- SMART PARSER (MAIN FIX) --------
         if "choices" in data and len(data["choices"]) > 0:
-            return data["choices"][0]["message"]["content"].strip()
+            msg = data["choices"][0]["message"]
 
-        return "Thoda network slow hai… 10 sec baad fir bhejo 🙂"
+            # normal response
+            if "content" in msg and msg["content"]:
+                return msg["content"].strip()
+
+        return fallback
 
     except Exception as e:
         print("AI ERROR:", e)
-        return "Server busy hai… 20 sec baad try karo 🙂"
+        return fallback
 
 
-# Telegram webhook
+# ---------------- WEBHOOK ----------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         data = request.json
+
+        if not data:
+            return "ok"
 
         if "message" not in data:
             return "ok"
@@ -85,12 +100,12 @@ def webhook():
         return "ok"
 
 
-# Health check
+# ---------------- HEALTH ----------------
 @app.route("/")
 def home():
-    return "ReplyShastra running"
+    return "ReplyShastra Running"
 
 
-# Run server
+# ---------------- RUN ----------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
