@@ -52,7 +52,7 @@ def get_ai_reply(user_message):
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are a male Indian texting expert. Reply with ONLY 1 short Hinglish WhatsApp message (max 2 lines). No explanation."
+                        "content": "You are a male Indian texting expert. Give ONLY 1 short Hinglish WhatsApp reply. Max 2 lines. No explanation."
                     },
                     {
                         "role": "user",
@@ -66,35 +66,35 @@ def get_ai_reply(user_message):
         )
 
         data = response.json()
-        print("AI RAW:", data)
+        print("FULL AI RESPONSE:", data)
 
-        # -------- NEW UNIVERSAL PARSER --------
-        if "choices" in data:
+        # ---------- UNIVERSAL PARSER ----------
+        if "choices" not in data:
+            return "Soch raha hoon... fir bhej 🙂"
 
-            message = data["choices"][0].get("message", {})
+        choice = data["choices"][0]
 
-            # 1️⃣ Normal models (GPT-3.5 style)
-            if isinstance(message.get("content"), str):
-                if message["content"].strip():
-                    return message["content"]
+        # Case 1: Normal GPT style
+        if "message" in choice and isinstance(choice["message"].get("content"), str):
+            return choice["message"]["content"]
 
-            # 2️⃣ Claude / GPT-5 / reasoning models
-            if isinstance(message.get("content"), list):
-                final_text = ""
-                for part in message["content"]:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        final_text += part.get("text", "")
-                if final_text.strip():
-                    return final_text
+        # Case 2: Claude / reasoning models
+        if "message" in choice and isinstance(choice["message"].get("content"), list):
+            text_reply = ""
+            for part in choice["message"]["content"]:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    text_reply += part.get("text", "")
+            if text_reply.strip():
+                return text_reply
 
-            # 3️⃣ Rare fallback
-            if "text" in data["choices"][0]:
-                return data["choices"][0]["text"]
+        # Case 3: Some providers send direct text
+        if "text" in choice:
+            return choice["text"]
 
-        return "Ek sec... fir bhej 🙂"
+        return "Network thoda slow hai... fir bhej 🙂"
 
     except Exception as e:
-        print("ERROR:", e)
+        print("AI ERROR:", e)
         return "Server busy hai... 1 min baad try kar 🙂"
 
 
