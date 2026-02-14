@@ -2,94 +2,61 @@ import os
 import requests
 from flask import Flask, request
 
-app = Flask(__name__)
-
-# ENV VARIABLES
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-# HuggingFace model
-API_URL = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
-headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+app = Flask(__name__)
 
-
-# -------- AI GENERATE REPLY --------
 def generate_reply(user_text):
-
-    prompt = f"""
-Tum ek smart Indian relationship advisor ho.
-Ladke ko apni girlfriend se kya bolna chahiye — usko natural Hinglish me suggest karo.
-Short, realistic aur WhatsApp style reply dena.
-
-User: {user_text}
-Advisor:
-"""
+    API_URL = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
     payload = {
-        "inputs": prompt,
+        "inputs": user_text,
         "parameters": {
-            "max_new_tokens": 120,
-            "temperature": 0.7
+            "max_new_tokens": 60,
+            "temperature": 0.9,
+            "do_sample": True
         }
     }
 
     try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
-        data = response.json()
+        r = requests.post(API_URL, headers=headers, json=payload, timeout=20)
+        data = r.json()
 
-        if isinstance(data, list):
-            return data[0]["generated_text"].replace(prompt, "").strip()
+        if isinstance(data, list) and "generated_text" in data[0]:
+            reply = data[0]["generated_text"]
+            return reply.strip()
 
-        return "Thoda wait karo... soch raha hu 🤔"
+        return "Hmm... samjh gaya 🙂 thoda aur batao"
 
-    except Exception as e:
-        return "Network slow hai... phir bhejo 🙂"
+    except:
+        return "Network slow hai... 1 min baad try karo 🙂"
 
 
-# -------- TELEGRAM WEBHOOK --------
 @app.route("/webhook", methods=["POST"])
 def webhook():
-
     data = request.get_json()
 
-    if "message" not in data:
-        return "ok"
+    if "message" in data and "text" in data["message"]:
+        chat_id = data["message"]["chat"]["id"]
+        text = data["message"]["text"]
 
-    message = data["message"]
+        reply = generate_reply(text)
 
-    if "text" not in message:
-        return "ok"
-
-    chat_id = message["chat"]["id"]
-    text = message["text"]
-
-    send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-
-    # INSTANT RESPONSE (Telegram timeout fix)
-    requests.post(send_url, json={
-        "chat_id": chat_id,
-        "text": "Soch raha hu... 🤔"
-    })
-
-    if text == "/start":
+        send_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
         requests.post(send_url, json={
             "chat_id": chat_id,
-            "text": "ReplyShastra AI Active 🔥\nApni problem bhejo."
+            "text": reply
         })
-        return "ok"
-
-    # AI reply
-    reply = generate_reply(text)
-
-    requests.post(send_url, json={
-        "chat_id": chat_id,
-        "text": reply
-    })
 
     return "ok"
 
 
-# -------- RAILWAY PORT --------
+@app.route("/", methods=["GET"])
+def home():
+    return "ReplyShastra running"
+
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
