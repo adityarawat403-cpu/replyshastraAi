@@ -3,35 +3,40 @@ import requests
 from flask import Flask, request
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-HF_TOKEN = os.getenv("HF_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 app = Flask(__name__)
 
 def generate_reply(user_text):
-    API_URL = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-    payload = {
-        "inputs": user_text,
-        "parameters": {
-            "max_new_tokens": 60,
-            "temperature": 0.9,
-            "do_sample": True
-        }
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "mistralai/mistral-7b-instruct:free",
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are ReplyShastra, an expert relationship advisor. Reply in Hinglish like a smart, emotional friend. Give practical message suggestions user can send."
+            },
+            {
+                "role": "user",
+                "content": user_text
+            }
+        ]
     }
 
     try:
-        r = requests.post(API_URL, headers=headers, json=payload, timeout=20)
-        data = r.json()
+        r = requests.post(url, headers=headers, json=data, timeout=30)
+        response = r.json()
+        return response["choices"][0]["message"]["content"]
 
-        if isinstance(data, list) and "generated_text" in data[0]:
-            reply = data[0]["generated_text"]
-            return reply.strip()
-
-        return "Hmm... samjh gaya 🙂 thoda aur batao"
-
-    except:
-        return "Network slow hai... 1 min baad try karo 🙂"
+    except Exception as e:
+        return "Server thoda busy hai... 1 min baad try karo 🙂"
 
 
 @app.route("/webhook", methods=["POST"])
@@ -55,7 +60,7 @@ def webhook():
 
 @app.route("/", methods=["GET"])
 def home():
-    return "ReplyShastra running"
+    return "ReplyShastra AI Running"
 
 
 if __name__ == "__main__":
