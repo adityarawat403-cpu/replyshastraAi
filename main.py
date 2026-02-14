@@ -1,67 +1,75 @@
-import os
-import requests
 from flask import Flask, request
-
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+import requests
+import os
 
 app = Flask(__name__)
 
-def generate_reply(user_text):
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-    url = "https://openrouter.ai/api/v1/chat/completions"
 
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
+def send_message(chat_id, text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text
     }
+    requests.post(url, json=payload)
 
-    data = {
-        "model": "meta-llama/llama-3.1-8b-instruct:free"
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are ReplyShastra, an expert relationship advisor. Reply in Hinglish like a smart, emotional friend. Give practical message suggestions user can send."
-            },
-            {
-                "role": "user",
-                "content": user_text
-            }
-        ]
-    }
 
+def get_ai_reply(user_message):
     try:
-        r = requests.post(url, headers=headers, json=data, timeout=30)
-        response = r.json()
-        return response["choices"][0]["message"]["content"]
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": "https://telegram.org",
+                "X-Title": "ReplyShastra"
+            },
+            json={
+                "model": "mistralai/mistral-7b-instruct:free",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are ReplyShastra, a smart Indian relationship and chat assistant. You reply in natural Hinglish like a real human. Give short, practical, emotional replies that user can directly copy-paste."
+                    },
+                    {"role": "user", "content": user_message}
+                ],
+                "temperature": 0.7
+            },
+            timeout=60
+        )
 
-    except Exception as e:
-        return "Server thoda busy hai... 1 min baad try karo 🙂"
+        data = response.json()
+
+        if "choices" in data:
+            return data["choices"][0]["message"]["content"]
+        else:
+            return "AI thoda busy hai... 1 min baad try karo 🙂"
+
+    except:
+        return "Server busy hai... 1 min baad try karo 🙂"
 
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json()
+    data = request.json
 
-    if "message" in data and "text" in data["message"]:
+    if "message" in data:
         chat_id = data["message"]["chat"]["id"]
-        text = data["message"]["text"]
+        user_message = data["message"].get("text", "")
 
-        reply = generate_reply(text)
-
-        send_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        requests.post(send_url, json={
-            "chat_id": chat_id,
-            "text": reply
-        })
+        if user_message:
+            reply = get_ai_reply(user_message)
+            send_message(chat_id, reply)
 
     return "ok"
 
 
-@app.route("/", methods=["GET"])
+@app.route("/")
 def home():
-    return "ReplyShastra AI Running"
+    return "ReplyShastra AI Running 🚀"
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run(host="0.0.0.0", port=8080)
