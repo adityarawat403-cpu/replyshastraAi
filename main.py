@@ -9,39 +9,36 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# ================= TEXT CLEANER =================
-def clean_text(text):
-    if not text:
-        return "Hmm... dubara bhejo 🙂"
-
-    text = str(text)
-
-    # telegram markdown break fix
-    bad = ["*", "_", "`", "#", "<", ">", "[", "]"]
-    for b in bad:
-        text = text.replace(b, "")
-
-    return text[:350]
-
-
-# ================= TELEGRAM SEND =================
+# ================= TELEGRAM SEND MESSAGE (FIXED) =================
 def send_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
+    # Safety fallback
+    if not text:
+        text = "Samajh nahi aya... dubara bhejo 🙂"
+
+    # REMOVE characters that break Telegram
+    bad_chars = ["<", ">", "&", "\"", "'", "`", "*", "_", "#"]
+    for ch in bad_chars:
+        text = text.replace(ch, "")
+
+    # Telegram message size safety
+    text = text[:350]
+
     payload = {
         "chat_id": chat_id,
-        "text": clean_text(text)
+        "text": text
     }
 
     r = requests.post(url, json=payload)
-    print("TELEGRAM:", r.text)
+    print("TELEGRAM RESPONSE:", r.text)
 
 
 # ================= AI REPLY FUNCTION =================
 def get_ai_reply(user_message):
     try:
         response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            url="https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                 "HTTP-Referer": "https://telegram.org",
@@ -52,7 +49,14 @@ def get_ai_reply(user_message):
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are a male Indian texting expert. Give ONLY 1 short Hinglish WhatsApp reply. Max 2 lines. No explanation."
+                        "content": (
+                            "You are a confident Indian boyfriend texting expert. "
+                            "You help boys reply to girls. "
+                            "Reply like a real Indian guy on WhatsApp in natural Hinglish. "
+                            "Maximum 2 lines only. "
+                            "No paragraphs. No explanation. No options. "
+                            "Only ready to send message."
+                        )
                     },
                     {
                         "role": "user",
@@ -66,43 +70,33 @@ def get_ai_reply(user_message):
         )
 
         data = response.json()
-        print("FULL AI RESPONSE:", data)
+        print("OPENROUTER RAW:", data)
 
-        # ---------- UNIVERSAL PARSER ----------
-        if "choices" not in data:
-            return "Soch raha hoon... fir bhej 🙂"
+        # Smart parser (handles all model formats)
+        if "choices" in data:
+            msg = data["choices"][0]["message"]
 
-        choice = data["choices"][0]
+            # normal string reply
+            if isinstance(msg.get("content"), str) and msg["content"].strip() != "":
+                return msg["content"]
 
-        # Case 1: Normal GPT style
-        if "message" in choice and isinstance(choice["message"].get("content"), str):
-            return choice["message"]["content"]
+            # array type reply (some models send this)
+            if isinstance(msg.get("content"), list):
+                for part in msg["content"]:
+                    if "text" in part:
+                        return part["text"]
 
-        # Case 2: Claude / reasoning models
-        if "message" in choice and isinstance(choice["message"].get("content"), list):
-            text_reply = ""
-            for part in choice["message"]["content"]:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    text_reply += part.get("text", "")
-            if text_reply.strip():
-                return text_reply
-
-        # Case 3: Some providers send direct text
-        if "text" in choice:
-            return choice["text"]
-
-        return "Network thoda slow hai... fir bhej 🙂"
+        return "Soch raha hoon... 5 sec baad bhej 🙂"
 
     except Exception as e:
-        print("AI ERROR:", e)
+        print("ERROR:", e)
         return "Server busy hai... 1 min baad try kar 🙂"
 
 
-# ================= WEBHOOK =================
+# ================= TELEGRAM WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
-    print("INCOMING:", data)
 
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
@@ -115,12 +109,12 @@ def webhook():
     return "ok"
 
 
-# ================= HOME =================
+# ================= HOME CHECK =================
 @app.route("/")
 def home():
     return "ReplyShastra AI Running 🚀"
 
 
-# ================= RUN =================
+# ================= RUN SERVER =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
