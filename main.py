@@ -4,33 +4,41 @@ import os
 
 app = Flask(__name__)
 
-# ========= TOKENS =========
+# ================= TOKENS =================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# ========= TELEGRAM SEND =========
+# ================= TEXT CLEANER =================
+def clean_text(text):
+    if not text:
+        return "Hmm... dubara bhejo 🙂"
+
+    text = str(text)
+
+    # telegram markdown break fix
+    bad = ["*", "_", "`", "#", "<", ">", "[", "]"]
+    for b in bad:
+        text = text.replace(b, "")
+
+    return text[:350]
+
+
+# ================= TELEGRAM SEND =================
 def send_message(chat_id, text):
-
-    if not text or text.strip() == "":
-        text = "Ek sec... fir bhej 🙂"
-
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
     payload = {
         "chat_id": chat_id,
-        "text": text[:350]
+        "text": clean_text(text)
     }
 
-    try:
-        requests.post(url, json=payload, timeout=20)
-    except:
-        pass
+    r = requests.post(url, json=payload)
+    print("TELEGRAM:", r.text)
 
 
-# ========= AI REPLY =========
+# ================= AI REPLY FUNCTION =================
 def get_ai_reply(user_message):
-
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -44,59 +52,59 @@ def get_ai_reply(user_message):
                 "messages": [
                     {
                         "role": "system",
-                        "content": (
-                            "You are a male Indian dating texting expert. "
-                            "You help boys reply to girls. "
-                            "Give ONLY one WhatsApp ready message. "
-                            "Hinglish language. "
-                            "Maximum 2 lines. "
-                            "No options. No explanation. No paragraphs."
-                        )
+                        "content": "You are a MALE Indian texting expert. You help boys reply to girls. Give ONLY 1 short WhatsApp-ready Hinglish message. Max 2 lines. No options. No explanation."
                     },
                     {
                         "role": "user",
                         "content": user_message
                     }
                 ],
-                "temperature": 0.9,
-                "max_tokens": 80
+                "temperature": 0.8,
+                "max_tokens": 120
             },
-            timeout=60
+            timeout=90
         )
 
         data = response.json()
-        print("AI DATA:", data)
+        print("OPENROUTER RAW:", data)
 
-        # ---- universal parser ----
+        # ======= SMART PARSER (VERY IMPORTANT FIX) =======
         if "choices" in data:
 
-            choice = data["choices"][0]
+            message = data["choices"][0].get("message", {})
 
             # normal models
-            if "message" in choice and "content" in choice["message"]:
-                content = choice["message"]["content"]
-                if content and content.strip() != "":
-                    return content
+            if isinstance(message.get("content"), str):
+                if message["content"].strip():
+                    return message["content"]
 
-            # text models
-            if "text" in choice:
-                return choice["text"]
+            # reasoning models (new format)
+            if isinstance(message.get("content"), list):
+                collected = ""
+                for part in message["content"]:
+                    if isinstance(part, dict) and "text" in part:
+                        collected += part["text"]
+                if collected.strip():
+                    return collected
 
-        return "Thoda soch raha hoon... 5 sec baad bhej 🙂"
+            # rare fallback
+            if "text" in data["choices"][0]:
+                return data["choices"][0]["text"]
+
+        return "Ek sec... fir bhej 🙂"
 
     except Exception as e:
         print("AI ERROR:", e)
         return "Server busy hai... 1 min baad try kar 🙂"
 
 
-# ========= WEBHOOK =========
+# ================= WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
 def webhook():
-
     data = request.json
+    print("INCOMING:", data)
 
     if "message" in data:
-
         chat_id = data["message"]["chat"]["id"]
         user_message = data["message"].get("text", "")
 
@@ -107,12 +115,12 @@ def webhook():
     return "ok"
 
 
-# ========= HOME =========
+# ================= HOME =================
 @app.route("/")
 def home():
-    return "ReplyShastra Running"
+    return "ReplyShastra AI Running 🚀"
 
 
-# ========= RUN =========
+# ================= RUN =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
