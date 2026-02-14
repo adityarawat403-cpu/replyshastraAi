@@ -23,84 +23,72 @@ def send_message(chat_id, text):
 def get_ai_reply(user_message):
     try:
         response = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
+            "https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "HTTP-Referer": "https://telegram.org",
-                "X-Title": "ReplyShastra"
+                "Content-Type": "application/json"
             },
             json={
                 "model": "openrouter/auto",
+                "temperature": 0.7,
+                "max_tokens": 120,
                 "messages": [
                     {
                         "role": "system",
-                        "content": """You are NOT the boyfriend.
-
-You help a boy write a WhatsApp message to send to his girlfriend.
-
-Write ONLY the exact message he should send.
-
-Tone:
-Normal Indian boy. Simple, natural and real. Slight caring but not dramatic.
-
-Strict Rules:
-- Only 1 message
-- Maximum 2 lines
-- Hinglish only
-- No "baby", "jaan", "shona", "cutie"
-- No poetry
-- No long emotional paragraphs
-- No advice
-- No explanation
-- No options
-- No lists
-
-It must look like a real human typed WhatsApp message.
-Only sendable text."""
+                        "content": "You are a 23 year old Indian boy chatting with his girlfriend on WhatsApp. You are NOT an assistant. You write the exact message he should send her. Only 1 message, maximum 2 lines, Hinglish only, emotional, natural human texting style. No advice, no explanation, no lists, no options. Only sendable WhatsApp text."
                     },
                     {
                         "role": "user",
                         "content": user_message
                     }
-                ],
-                "temperature": 0.7,
-                "max_tokens": 120
+                ]
             },
-            timeout=90
+            timeout=60
         )
 
         data = response.json()
 
         if "choices" in data and len(data["choices"]) > 0:
             return data["choices"][0]["message"]["content"].strip()
-        else:
-            return "Net slow lag raha... 10 sec baad fir bhej 🙂"
+
+        return "Thoda network slow hai… 10 sec baad fir bhejo 🙂"
 
     except Exception as e:
-        print("ERROR:", e)
-        return "Server busy hai... 1 min baad try kar 🙂"
+        print("AI ERROR:", e)
+        return "Server busy hai… 20 sec baad try karo 🙂"
 
 
 # Telegram webhook
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
+    try:
+        data = request.json
 
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
-        user_message = data["message"].get("text", "")
+        if "message" not in data:
+            return "ok"
 
-        if user_message:
-            reply = get_ai_reply(user_message)
-            send_message(chat_id, reply)
+        message = data["message"]
 
-    return "ok"
+        if "text" not in message:
+            return "ok"
+
+        chat_id = message["chat"]["id"]
+        user_message = message["text"]
+
+        reply = get_ai_reply(user_message)
+        send_message(chat_id, reply)
+
+        return "ok"
+
+    except Exception as e:
+        print("WEBHOOK ERROR:", e)
+        return "ok"
 
 
-# Home check
+# Health check
 @app.route("/")
 def home():
-    return "ReplyShastra AI Running 🚀"
+    return "ReplyShastra running"
 
 
 # Run server
