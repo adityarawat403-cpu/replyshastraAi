@@ -31,10 +31,20 @@ def get_ai_reply(user_message):
             },
             json={
                 "model": "openrouter/auto",
+                "temperature": 0.7,
+                "max_tokens": 120,
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are a smart Indian relationship and chatting assistant. Reply in natural Hinglish like a real human. Replies should be emotional, short and practical. No long paragraphs."
+                        "content": (
+                            "You are a confident Indian male friend helping a boy text a girl on WhatsApp. "
+                            "Always reply in casual Hinglish. "
+                            "Reply must be only ONE ready-to-send message. "
+                            "Maximum 2 short lines. "
+                            "No paragraphs, no lists, no options, no explanation. "
+                            "Do not sound like a girl or counselor. "
+                            "Keep tone simple, direct, slightly emotional and natural like a real guy texting."
+                        )
                     },
                     {
                         "role": "user",
@@ -48,12 +58,20 @@ def get_ai_reply(user_message):
         data = response.json()
 
         if "choices" in data:
-            return data["choices"][0]["message"]["content"]
+            reply = data["choices"][0]["message"]["content"]
+
+            # extra safety: agar AI lamba likh de to kaat do
+            reply = reply.split("\n")[0]
+            if len(reply) > 220:
+                reply = reply[:220]
+
+            return reply
         else:
-            return "AI busy hai thoda... 20 sec baad fir bhejo 🙂"
+            print("OPENROUTER ERROR:", data)
+            return "AI thoda busy hai... 20 sec baad fir bhejo 🙂"
 
     except Exception as e:
-        print("ERROR:", e)
+        print("SERVER ERROR:", e)
         return "Server connect nahi ho pa raha... thodi der baad try karo 🙂"
 
 
