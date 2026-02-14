@@ -9,7 +9,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 # HuggingFace model
-API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
+API_URL = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
 headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
 
