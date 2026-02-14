@@ -6,6 +6,7 @@ app = Flask(__name__)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+SITE_URL = os.getenv("SITE_URL")
 
 
 def send_message(chat_id, text):
@@ -20,35 +21,39 @@ def send_message(chat_id, text):
 def get_ai_reply(user_message):
     try:
         response = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
+            "https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "HTTP-Referer": "https://telegram.org",
-                "X-Title": "ReplyShastra"
+                "HTTP-Referer": SITE_URL,
+                "X-Title": "ReplyShastra",
+                "Content-Type": "application/json"
             },
             json={
                 "model": "mistralai/mistral-7b-instruct:free",
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are ReplyShastra, a smart Indian relationship and chat assistant. You reply in natural Hinglish like a real human. Give short, practical, emotional replies that user can directly copy-paste."
+                        "content": "You are ReplyShastra, an Indian relationship assistant. Reply in natural Hinglish like WhatsApp messages. Keep replies short, emotional, practical and directly copy-paste ready."
                     },
-                    {"role": "user", "content": user_message}
+                    {
+                        "role": "user",
+                        "content": user_message
+                    }
                 ],
-                "temperature": 0.7
+                "temperature": 0.8,
+                "max_tokens": 300
             },
-            timeout=60
+            timeout=90
         )
 
+        if response.status_code != 200:
+            return "AI abhi connect nahi ho pa raha... 30 sec baad try karo 🙂"
+
         data = response.json()
+        return data["choices"][0]["message"]["content"]
 
-        if "choices" in data:
-            return data["choices"][0]["message"]["content"]
-        else:
-            return "AI thoda busy hai... 1 min baad try karo 🙂"
-
-    except:
-        return "Server busy hai... 1 min baad try karo 🙂"
+    except Exception as e:
+        return "Server connect nahi hua... thodi der baad try karo 🙂"
 
 
 @app.route("/webhook", methods=["POST"])
