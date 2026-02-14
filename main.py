@@ -4,13 +4,15 @@ import os
 
 app = Flask(__name__)
 
-# ================= TOKENS =================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# ============ TELEGRAM SEND FUNCTION ============
+# ---------------- TELEGRAM SEND ----------------
 def send_message(chat_id, text):
+    if not text:
+        text = "Thoda network slow hai… fir se bhej 🙂"
+
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
     payload = {
@@ -18,10 +20,13 @@ def send_message(chat_id, text):
         "text": text
     }
 
-    requests.post(url, json=payload)
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except:
+        pass
 
 
-# ============ AI RESPONSE FUNCTION ============
+# ---------------- AI REPLY ----------------
 def get_ai_reply(user_message):
     try:
         response = requests.post(
@@ -32,35 +37,21 @@ def get_ai_reply(user_message):
             },
             json={
                 "model": "openrouter/auto",
-                "temperature": 0.6,
+                "temperature": 0.7,
                 "max_tokens": 500,
                 "messages": [
                     {
                         "role": "system",
-                        "content": """You are ReplyShastra — a 23 year old Indian guy helping another boy with his relationship problems.
+                        "content": """You are ReplyShastra — a 23 year old Indian boy helping another boy with relationship problems.
 
-You talk like a real friend/bhai on WhatsApp, not like a coach, not like a therapist, and never like an AI.
+Talk like a real friend in Hinglish WhatsApp chat.
 
-Your behavior:
-Friendly, casual Hinglish, human tone.
+Every reply must:
+1 Explain what the girl is thinking
+2 Tell what he should do
+3 Give 2 ready WhatsApp messages
 
-In EVERY reply you must:
-
-1) First explain what the girl is likely thinking or feeling.
-2) Then clearly tell what he should do (simple practical steps).
-3) Then give 2 or 3 ready-to-copy WhatsApp messages he can send her.
-
-Rules:
-- No robotic tone
-- No “as an AI”
-- No bullet symbols
-- No long lectures
-- Write like real WhatsApp chat
-- Natural Hinglish
-- Helpful but chill
-- Do not say you are an AI
-
-Your reply must feel like an experienced friend guiding him."""
+No AI tone. No lectures. No bullet points."""
                     },
                     {
                         "role": "user",
@@ -68,65 +59,67 @@ Your reply must feel like an experienced friend guiding him."""
                     }
                 ]
             },
-            timeout=60
+            timeout=45
         )
 
         data = response.json()
 
-        if "choices" in data and len(data["choices"]) > 0:
-            return data["choices"][0]["message"]["content"]
+        # ---- SAFE RESPONSE PARSER ----
+        if "choices" in data:
+            msg = data["choices"][0]
 
-        return "Network thoda slow hai… 10 sec baad fir bhej 🙂"
+            if "message" in msg and "content" in msg["message"]:
+                return msg["message"]["content"]
+
+            if "text" in msg:
+                return msg["text"]
+
+        print("OPENROUTER RAW:", data)
+        return "Samajh gaya... thoda properly bata kya hua usne exactly kya kiya?"
 
     except Exception as e:
         print("AI ERROR:", e)
-        return "Server busy hai… thodi der baad try kar 🙂"
+        return "Server busy hai bhai… 10 sec baad fir bhej 🙂"
 
 
-# ============ TELEGRAM WEBHOOK ============
+# ---------------- WEBHOOK ----------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
+    try:
+        data = request.json
 
-    if "message" not in data:
-        return "ok"
+        if "message" not in data:
+            return "ok"
 
-    message = data["message"]
+        message = data["message"]
+        chat_id = message["chat"]["id"]
 
-    chat_id = message["chat"]["id"]
-
-    # START COMMAND GREETING
-    if "text" in message and message["text"] == "/start":
-        send_message(chat_id,
+        # /start greeting
+        if "text" in message and message["text"] == "/start":
+            send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
 
-Main help kar sakta hoon:
-GF ignore
-GF naraz
-Crush approach
-Seen ignore
-Breakup
-
-Samne wali ne kya socha + tumhe kya karna hai + ready messages sab dunga.
+GF ignore, GF naraz, crush, breakup — sab solve karenge.
 
 Apni situation detail me bata 👇""")
+            return "ok"
+
+        if "text" in message:
+            user_message = message["text"]
+            reply = get_ai_reply(user_message)
+            send_message(chat_id, reply)
+
         return "ok"
 
-    # NORMAL MESSAGE
-    if "text" in message:
-        user_message = message["text"]
-        reply = get_ai_reply(user_message)
-        send_message(chat_id, reply)
-
-    return "ok"
+    except Exception as e:
+        print("WEBHOOK ERROR:", e)
+        return "ok"
 
 
-# ============ HEALTH CHECK ============
 @app.route("/")
 def home():
     return "ReplyShastra Running"
 
 
-# ============ RUN ============
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
