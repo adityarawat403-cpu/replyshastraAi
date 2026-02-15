@@ -4,17 +4,15 @@ import os
 
 app = Flask(__name__)
 
-# ================= TOKENS =================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# ================= TELEGRAM MESSAGE SENDER (FIXED) =================
+# -------- SEND MESSAGE (ANTI LOOP) ----------
 def send_message(chat_id, text):
     if not text:
-        text = "Samajh gaya... thoda aur detail me bata 🙂"
+        text = "Samajh nahi aya, ek baar aur simple me bata 🙂"
 
-    # Telegram 4096 char limit — split message
     parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
     for part in parts:
@@ -24,12 +22,12 @@ def send_message(chat_id, text):
             "text": part
         }
         try:
-            requests.post(url, json=payload, timeout=15)
+            requests.post(url, json=payload, timeout=20)
         except:
             pass
 
 
-# ================= AI REPLY =================
+# -------- AI REPLY ----------
 def get_ai_reply(user_message):
     try:
         response = requests.post(
@@ -41,30 +39,29 @@ def get_ai_reply(user_message):
                 "X-Title": "ReplyShastra"
             },
             json={
-                "model": "openrouter/auto",
-                "temperature": 0.85,
-                "max_tokens": 500,
+                "model": "openai/gpt-3.5-turbo",
                 "messages": [
                     {
                         "role": "system",
                         "content": """
-You are ReplyShastra — a friendly Indian male relationship expert (big brother vibe).
+You are ReplyShastra AI.
 
-You talk like a real Indian guy in natural Hinglish.
+You talk like a real experienced Indian friend (not assistant).
+You help boys handle relationship situations.
 
 Your job:
 1) First understand his situation
-2) Explain WHY girl is behaving like that
-3) Tell EXACTLY what he should do
-4) Give 2-3 ready-to-send messages he can copy paste
+2) Explain what girl is thinking (psychology)
+3) Tell what he should do
+4) Then give ready-to-send WhatsApp message
 
-Rules:
-- Friendly tone (not robotic)
-- No “as an AI”
-- No bullet formatting markdown
-- Simple WhatsApp style text
-- Emotional but practical
-- Clear actionable advice
+Style:
+- Hinglish
+- Friendly
+- Supportive
+- Realistic
+- No bullet point formatting
+- No robotic tone
 """
                     },
                     {
@@ -78,60 +75,51 @@ Rules:
 
         data = response.json()
 
-        if "choices" in data and len(data["choices"]) > 0:
-            return data["choices"][0]["message"]["content"].strip()
+        # DEBUG (very important)
+        print("OPENROUTER RESPONSE:", data)
 
-        return "Samajh nahi aya properly... thoda detail me bata 🙂"
+        if "choices" in data and len(data["choices"]) > 0:
+            return data["choices"][0]["message"]["content"]
+
+        return "Network thoda unstable lag raha... ek baar aur bhej 🙂"
 
     except Exception as e:
         print("AI ERROR:", e)
-        return "Server thoda busy hai... 10 sec baad fir bhej 🙂"
+        return "Server AI se connect nahi ho pa raha... 10 sec baad fir try karo 🙂"
 
 
-# ================= TELEGRAM WEBHOOK =================
+# -------- WEBHOOK ----------
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    try:
-        data = request.json
+    data = request.json
 
-        if "message" not in data:
-            return "ok"
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+        user_message = data["message"].get("text", "")
 
-        message = data["message"]
+        if user_message:
 
-        if "text" not in message:
-            return "ok"
+            # /start greeting
+            if user_message.lower() == "/start":
+                greeting = """Hi! Main ReplyShastra hoon 🙂
 
-        chat_id = message["chat"]["id"]
-        user_message = message["text"]
-
-        # START COMMAND GREETING
-        if user_message == "/start":
-            send_message(chat_id,
-"""Hi! Main ReplyShastra hoon 🙂
-
-GF ignore, GF naraz, crush, breakup — sab solve karenge.
+GF ignore, naraz, breakup, crush — sab handle karenge.
 
 Apni situation detail me bata 👇
-(Main exact solution + ready messages dunga)""")
-            return "ok"
+(Main tujhe exact samjhaunga + ready message bhi dunga)"""
+                send_message(chat_id, greeting)
+                return "ok"
 
-        reply = get_ai_reply(user_message)
-        send_message(chat_id, reply)
+            reply = get_ai_reply(user_message)
+            send_message(chat_id, reply)
 
-        return "ok"
-
-    except Exception as e:
-        print("WEBHOOK ERROR:", e)
-        return "ok"
+    return "ok"
 
 
-# ================= HOME CHECK =================
 @app.route("/")
 def home():
-    return "ReplyShastra running"
+    return "ReplyShastra AI Running 🚀"
 
 
-# ================= RUN SERVER =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
