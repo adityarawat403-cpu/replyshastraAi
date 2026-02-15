@@ -4,17 +4,17 @@ import os
 
 app = Flask(__name__)
 
-# ================= TOKENS =================
+# ENV TOKENS (Railway me set honge)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# ================= SEND MESSAGE (SAFE SPLIT) =================
+# ========== TELEGRAM MESSAGE SENDER ==========
 def send_message(chat_id, text):
     if not text:
-        text = "Samajh nahi aaya... thoda detail me bata 🙂"
+        text = "Samajh gaya... thoda aur detail me bata 🙂"
 
-    # Telegram limit 4096 — safe split
+    # Telegram limit 4096 chars (safe split)
     parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
     for part in parts:
@@ -24,57 +24,45 @@ def send_message(chat_id, text):
             "text": part
         }
         try:
-            requests.post(url, json=payload, timeout=20)
+            requests.post(url, json=payload, timeout=15)
         except:
             pass
 
 
-# ================= AI REPLY =================
+# ========== AI REPLY ==========
 def get_ai_reply(user_message):
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "HTTP-Referer": "https://replyshastra.ai",
-                "X-Title": "ReplyShastra",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://telegram.org",
+                "X-Title": "ReplyShastra"
             },
             json={
-                "model": "model": "mistralai/mistral-7b-instruct",
-                "temperature": 0.85,
-                "max_tokens": 900,
+                "model": "mistralai/mistral-7b-instruct",
+                "temperature": 0.7,
+                "max_tokens": 800,
                 "messages": [
                     {
                         "role": "system",
-                        "content": """
-You are ReplyShastra — a smart Indian relationship advisor friend.
-
-You talk like a real 23-27 year old Indian male best friend, not like an AI.
+                        "content": """You are ReplyShastra — a 23 year old Indian boy + relationship expert friend.
 
 Your job:
-Understand the user's relationship situation and give:
-1) Clear explanation of what the girl/boy is thinking psychologically
-2) What mistake the user is doing (if any)
-3) Exact step-by-step what he should do next
-4) Then give 2-3 READY-TO-SEND messages he can copy paste
+Understand the user's relationship problem and explain the psychology behind what the girl might be thinking. Then give step-by-step advice AND ready-to-send messages.
 
-Style rules:
-- Hinglish (natural)
-- Friendly "bhai" tone
-- No robotic language
-- No "as an AI"
-- No bullet points symbols like •
-- Write like WhatsApp chat
-- Emotional + practical
-
-If user writes short message like:
-"meri gf ignore kar rahi hai"
-→ you MUST still give full solution.
-
-Never ask for unnecessary details first.
-First help, then ask small clarification if needed.
-"""
+Rules:
+- Talk like a real human friend (Hinglish)
+- Be emotionally understanding
+- No short robotic replies
+- First understand situation
+- Then explain what is happening
+- Then tell exactly what he should do
+- Then give 2-3 ready-to-send WhatsApp messages
+- Never say "I am an AI"
+- Never ask too many questions
+- If user writes very small message (like "gf ignore kar rahi hai") you must still give a full explanation and solution."""
                     },
                     {
                         "role": "user",
@@ -86,30 +74,18 @@ First help, then ask small clarification if needed.
         )
 
         data = response.json()
-        print("OPENROUTER RESPONSE:", data)
 
-        # ======= PARSER (handles both formats) =======
         if "choices" in data and len(data["choices"]) > 0:
-            message = data["choices"][0]["message"]
+            return data["choices"][0]["message"]["content"].strip()
 
-            # normal string response
-            if isinstance(message.get("content"), str):
-                return message["content"].strip()
-
-            # list response format
-            if isinstance(message.get("content"), list):
-                for part in message["content"]:
-                    if "text" in part:
-                        return part["text"].strip()
-
-        return "Network thoda slow hai… ek baar fir bhej 🙂"
+        return "Network thoda slow hai... ek baar aur bhej 🙂"
 
     except Exception as e:
         print("AI ERROR:", e)
-        return "Server busy hai… 20 sec baad try kar 🙂"
+        return "Server busy hai... 20 sec baad try karo 🙂"
 
 
-# ================= TELEGRAM WEBHOOK =================
+# ========== TELEGRAM WEBHOOK ==========
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
@@ -126,17 +102,18 @@ def webhook():
         chat_id = message["chat"]["id"]
         user_message = message["text"]
 
-        # ignore commands except /start
+        # /start greeting
         if user_message == "/start":
-            welcome = """Hi! Main ReplyShastra hoon 🙂
+            intro = """Hi! Main ReplyShastra hoon 🙂
 
 GF ignore, naraz, breakup, crush — sab handle karenge.
 
 Apni situation detail me bata 👇
 (Main tujhe exact samjhaunga + ready message bhi dunga)"""
-            send_message(chat_id, welcome)
+            send_message(chat_id, intro)
             return "ok"
 
+        # AI reply
         reply = get_ai_reply(user_message)
         send_message(chat_id, reply)
 
@@ -147,12 +124,12 @@ Apni situation detail me bata 👇
         return "ok"
 
 
-# ================= HEALTH CHECK =================
+# ========== HEALTH CHECK ==========
 @app.route("/")
 def home():
-    return "ReplyShastra Running 🚀"
+    return "ReplyShastra running"
 
 
-# ================= RUN =================
+# ========== RUN ==========
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
