@@ -13,7 +13,7 @@ user_memory = {}
 # ================= SEND MESSAGE =================
 def send_message(chat_id, text):
     if not text:
-        text = "Samajh nahi aya... thoda simple likh 🙂"
+        text = "Thoda clear likh na 🙂"
 
     parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
@@ -29,56 +29,43 @@ def send_message(chat_id, text):
 # ================= AI REPLY =================
 def get_ai_reply(chat_id, user_message):
 
-    # ---- MEMORY ADD ----
+    # ---- create memory ----
     if chat_id not in user_memory:
         user_memory[chat_id] = []
 
     user_memory[chat_id].append({"role": "user", "content": user_message})
+
+    # keep last 8 msgs only
     user_memory[chat_id] = user_memory[chat_id][-8:]
+
 
     messages = [
         {
             "role": "system",
             "content": """
-You are ReplyShastra — a WhatsApp reply writer.
+You are ReplyShastra.
 
-Your job is ONLY to write the exact message the user should send to his girlfriend.
+A boy will come to you with his chat situation with a girl.
 
-Important Behaviour Rules:
-1. Never abuse the girl
-2. Never insult the girl
-3. Never use words like chutiya, toxic, game, ego, alpha
-4. Never lecture the user
-5. Never explain psychology
-6. Never give long advice
+You read his situation and write the exact message he should send her.
 
-You are NOT a dating coach.
-You are NOT a love guru.
-You only write the message to send.
+Write like a real Indian boy texting on WhatsApp.
 
-Response Style:
+Output format:
+• Only the final message to send
+• Maximum 2 short lines
+• Natural Hinglish
+• Soft and respectful tone
 
-If user says:
-msg de
-what should I send
-gf ignore kar rahi hai
-wo naraz hai
+Do not explain.
+Do not give advice.
+Do not act like a coach.
 
-→ Reply with ONLY ONE WhatsApp message
-→ Maximum 2 lines
-→ Soft calm tone
-→ No emojis except ❤️ or 🙂 (max 1)
-
-If girl said "sham ko baat karte"
-→ Tell him to wait
-→ Do NOT write a message
-
-Do not add explanation
-Do not add bullet points
-Output must look exactly like a WhatsApp message only.
+Only the sendable message.
 """
         }
     ] + user_memory[chat_id]
+
 
     try:
         response = requests.post(
@@ -91,7 +78,8 @@ Output must look exactly like a WhatsApp message only.
             json={
                 "model": "openrouter/auto",
                 "messages": messages,
-                "temperature": 0.5
+                "temperature": 0.8,
+                "max_tokens": 120
             },
             timeout=90
         )
@@ -99,20 +87,18 @@ Output must look exactly like a WhatsApp message only.
         data = response.json()
 
         if "choices" in data:
-            reply = data["choices"][0]["message"]["content"].strip()
+            reply = data["choices"][0]["message"]["content"]
 
-            # safety cleanup
-            if len(reply) > 400:
-                reply = reply[:400]
-
+            # save AI reply in memory
             user_memory[chat_id].append({"role": "assistant", "content": reply})
+
             return reply
 
-        return "Network slow hai... 20 sec baad bhej 🙂"
+        return "Network slow hai... 10 sec baad bhej 🙂"
 
     except Exception as e:
         print("ERROR:", e)
-        return "Server busy hai... thoda baad try kar 🙂"
+        return "Server busy hai... thodi der baad try kar 🙂"
 
 
 # ================= WEBHOOK =================
@@ -121,21 +107,18 @@ def webhook():
     data = request.json
 
     if "message" in data:
-        message = data["message"]
-        chat_id = message["chat"]["id"]
-        user_message = message.get("text", "")
+        chat_id = data["message"]["chat"]["id"]
+        user_message = data["message"].get("text", "")
 
         if user_message:
 
-            # START COMMAND
             if user_message.lower() == "/start":
                 user_memory[chat_id] = []
                 send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
 
-GF ignore, naraz, late reply — sab handle karenge.
-
-Apni situation simple likh 👇""")
+Apni situation simple likh,
+main tujhe exact message likh ke dunga jo tu send karega.""")
                 return "ok"
 
             reply = get_ai_reply(chat_id, user_message)
