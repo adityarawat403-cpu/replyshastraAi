@@ -41,7 +41,7 @@ def get_ai_reply(user_message):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "openrouter/auto",
+                "model": "model": "mistralai/mistral-7b-instruct",
                 "temperature": 0.85,
                 "max_tokens": 900,
                 "messages": [
