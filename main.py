@@ -24,17 +24,12 @@ def ask_ai(user_message):
                 "messages": [
                     {
                         "role": "system",
-                        "content": """
-You are ReplyShastra, a Hindi relationship assistant.
-
-Your job:
-- Write exact WhatsApp message user can send to girlfriend.
-- Message must be natural Indian Hindi/Hinglish.
-- Keep message 1–3 lines only.
-- No explanation, no advice, ONLY message text.
-- Emotional, caring, confident male tone.
-- Never say you are an AI.
-                        """
+                        "content": """You are ReplyShastra, a Hindi relationship assistant.
+Write only the exact WhatsApp message user should send.
+1-3 lines only.
+No explanation.
+Natural Hinglish.
+Emotional and caring tone."""
                     },
                     {
                         "role": "user",
@@ -42,26 +37,34 @@ Your job:
                     }
                 ]
             },
-            timeout=30
+            timeout=40
         )
+
+        # DEBUG PRINT
+        print("RAW AI:", response.text)
 
         data = response.json()
 
-        return data["choices"][0]["message"]["content"]
+        # SAFE PARSE (IMPORTANT FIX)
+        if "choices" in data and len(data["choices"]) > 0:
+            return data["choices"][0]["message"]["content"].strip()
+        else:
+            return "Sun na... thoda sa busy tha, par main yahin hoon. Baat karni ho to message kar dena 🙂"
 
     except Exception as e:
-        print("AI ERROR:", e)
-        return "Thoda ruk... abhi likh raha hoon 🙂"
+        print("AI FAILURE:", e)
+        return "Thoda network slow hai... par main yahin hoon 🙂"
 
 
 @app.route("/", methods=["GET"])
 def home():
-    return "ReplyShastra running"
+    return "ReplyShastra Working"
 
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
+    print("TELEGRAM UPDATE:", data)
 
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
