@@ -9,25 +9,19 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # ===== MEMORY STORE =====
 user_memory = {}
-last_message_id = {}
 
 # ================= SEND MESSAGE =================
 def send_message(chat_id, text):
-
-    if not text or text.strip() == "":
-        text = "Samajh nahi aya bhai, thoda simple likh 🙂"
+    if not text:
+        text = "Samajh nahi aya... thoda simple likh 🙂"
 
     parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
     for part in parts:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": part,
-            "parse_mode": "HTML"
-        }
+        payload = {"chat_id": chat_id, "text": part}
         try:
-            requests.post(url, json=payload, timeout=20)
+            requests.post(url, json=payload, timeout=15)
         except:
             pass
 
@@ -35,33 +29,53 @@ def send_message(chat_id, text):
 # ================= AI REPLY =================
 def get_ai_reply(chat_id, user_message):
 
+    # ---- MEMORY ADD ----
     if chat_id not in user_memory:
         user_memory[chat_id] = []
 
     user_memory[chat_id].append({"role": "user", "content": user_message})
     user_memory[chat_id] = user_memory[chat_id][-8:]
 
-
     messages = [
         {
             "role": "system",
             "content": """
-You are a real Indian 23-year-old boyfriend helping a friend handle his girlfriend texting situation.
+You are ReplyShastra — a WhatsApp reply writer.
 
-Talk in natural Hinglish like a real guy.
+Your job is ONLY to write the exact message the user should send to his girlfriend.
 
-Rules:
-- No lectures
-- No psychology explanation
-- No long paragraphs
-- Be practical
-- Calm him first if he is anxious
+Important Behaviour Rules:
+1. Never abuse the girl
+2. Never insult the girl
+3. Never use words like chutiya, toxic, game, ego, alpha
+4. Never lecture the user
+5. Never explain psychology
+6. Never give long advice
 
-If he asks what to send:
-→ Give ONE exact WhatsApp message only (max 2 lines)
+You are NOT a dating coach.
+You are NOT a love guru.
+You only write the message to send.
 
-If girl said "sham ko baat karte":
-→ tell him to wait and not double text
+Response Style:
+
+If user says:
+msg de
+what should I send
+gf ignore kar rahi hai
+wo naraz hai
+
+→ Reply with ONLY ONE WhatsApp message
+→ Maximum 2 lines
+→ Soft calm tone
+→ No emojis except ❤️ or 🙂 (max 1)
+
+If girl said "sham ko baat karte"
+→ Tell him to wait
+→ Do NOT write a message
+
+Do not add explanation
+Do not add bullet points
+Output must look exactly like a WhatsApp message only.
 """
         }
     ] + user_memory[chat_id]
@@ -71,78 +85,61 @@ If girl said "sham ko baat karte":
             "https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
                 "HTTP-Referer": "https://telegram.org",
                 "X-Title": "ReplyShastra"
             },
             json={
-                "model": "mistralai/mistral-7b-instruct",
+                "model": "openrouter/auto",
                 "messages": messages,
-                "temperature": 0.7,
-                "max_tokens": 400
+                "temperature": 0.5
             },
-            timeout=60
+            timeout=90
         )
 
         data = response.json()
 
-        if "choices" in data and len(data["choices"]) > 0:
-            reply = data["choices"][0]["message"]["content"]
+        if "choices" in data:
+            reply = data["choices"][0]["message"]["content"].strip()
+
+            # safety cleanup
+            if len(reply) > 400:
+                reply = reply[:400]
 
             user_memory[chat_id].append({"role": "assistant", "content": reply})
             return reply
 
-        print("AI RAW:", data)
-        return "Network slow hai bhai... 15 sec baad bhej 🙂"
+        return "Network slow hai... 20 sec baad bhej 🙂"
 
     except Exception as e:
-        print("AI ERROR:", e)
+        print("ERROR:", e)
         return "Server busy hai... thoda baad try kar 🙂"
 
 
 # ================= WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    try:
-        data = request.json
+    data = request.json
 
-        if not data:
-            return "ok"
-
-        if "message" not in data:
-            return "ok"
-
+    if "message" in data:
         message = data["message"]
         chat_id = message["chat"]["id"]
-        message_id = message["message_id"]
-
-        # ---- DUPLICATE MESSAGE FIX ----
-        if chat_id in last_message_id and last_message_id[chat_id] == message_id:
-            return "ok"
-        last_message_id[chat_id] = message_id
-
         user_message = message.get("text", "")
 
-        if not user_message:
-            send_message(chat_id, "Sirf text bhej bhai 🙂")
-            return "ok"
+        if user_message:
 
-        # ---- START COMMAND ----
-        if user_message.lower() == "/start":
-            user_memory[chat_id] = []
-            send_message(chat_id,
+            # START COMMAND
+            if user_message.lower() == "/start":
+                user_memory[chat_id] = []
+                send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
 
 GF ignore, naraz, late reply — sab handle karenge.
 
 Apni situation simple likh 👇""")
-            return "ok"
+                return "ok"
 
-        reply = get_ai_reply(chat_id, user_message)
-        send_message(chat_id, reply)
-
-    except Exception as e:
-        print("WEBHOOK ERROR:", e)
+            reply = get_ai_reply(chat_id, user_message)
+            send_message(chat_id, reply)
 
     return "ok"
 
