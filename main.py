@@ -9,12 +9,11 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# ================= TELEGRAM SEND =================
+# ================= SEND MESSAGE (LONG SAFE) =================
 def send_message(chat_id, text):
     if not text:
         text = "Samajh gaya... thoda aur detail me bata 🙂"
 
-    # Telegram limit fix (long reply split)
     parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
     for part in parts:
@@ -29,9 +28,29 @@ def send_message(chat_id, text):
             pass
 
 
-# ================= AI REPLY =================
+# ================= AI REPLY FUNCTION (FIXED) =================
 def get_ai_reply(user_message):
     try:
+
+        # ---- FORCE CONTEXT (MOST IMPORTANT FIX) ----
+        forced_context = f"""
+Situation: Indian relationship problem.
+
+Boy message:
+{user_message}
+
+He is asking help about his girlfriend.
+
+You must:
+- explain what girl is thinking
+- tell him what to do
+- give ready WhatsApp messages
+
+Never ask for more detail.
+Never say 'detail bata'.
+Never ask questions.
+"""
+
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={
@@ -40,60 +59,33 @@ def get_ai_reply(user_message):
                 "X-Title": "ReplyShastra"
             },
             json={
-                "model": "openrouter/auto",
+                "model": "mistralai/mistral-7b-instruct",
                 "messages": [
                     {
                         "role": "system",
-                        "content": """You are ReplyShastra.
+                        "content": """You are a real Indian male friend helping your bro with girlfriend problems.
 
-You are NOT a therapist.
-You are NOT an AI assistant.
+Style:
+Hinglish
+Friendly
+Confident
+No lecture
+No psychology jargon
 
-You are a 23 year old Indian boy helping your bro handle his girlfriend situation on WhatsApp.
+You NEVER ask questions.
 
-Your job:
-Give real practical help and exact messages he should send.
-
-VERY IMPORTANT STYLE:
-- Hinglish
-- Simple words
-- Friendly tone (bhai, samajh, dekh)
-- No long essays
-- No theory lectures
-- No psychology paragraphs
-- No motivational speech
-
-RESPONSE FORMAT (STRICT):
-1) First: Explain in 4-6 lines what the girl is likely thinking.
-2) Second: Tell exactly what he should do right now.
-3) Third: Give 2 or 3 READY-TO-SEND WhatsApp messages.
-
-READY MESSAGE RULES:
-- Only 1-2 lines each
-- Natural texting language
-- Copy-paste sendable
-- No long English paragraphs
-- No emoji spam
-- No numbering
-
-CRITICAL:
-If user writes small input like "gf ignore kar rahi hai"
-→ You STILL give full help.
-
-Never say:
-"samjha nahi"
-"detail bata"
-"tell me more"
-
-Always give solution."""
+Always:
+1) Explain situation
+2) Tell what he should do
+3) Give 2-3 exact copy-paste messages he can send."""
                     },
                     {
                         "role": "user",
-                        "content": user_message
+                        "content": forced_context
                     }
                 ],
-                "temperature": 0.9,
-                "max_tokens": 500
+                "temperature": 0.85,
+                "max_tokens": 700
             },
             timeout=90
         )
@@ -103,14 +95,14 @@ Always give solution."""
         if "choices" in data:
             return data["choices"][0]["message"]["content"]
         else:
-            return "Network thoda slow hai... 10 sec baad fir bhej 🙂"
+            return "Network slow hai... fir bhej 🙂"
 
     except Exception as e:
         print("ERROR:", e)
-        return "Server connect nahi ho pa raha... thodi der baad try karo 🙂"
+        return "Server busy hai... 20 sec baad bhej 🙂"
 
 
-# ================= WEBHOOK =================
+# ================= TELEGRAM WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
@@ -126,7 +118,7 @@ def webhook():
     return "ok"
 
 
-# ================= START CHECK =================
+# ================= START MESSAGE =================
 @app.route("/")
 def home():
     return "ReplyShastra AI Running 🚀"
