@@ -1,24 +1,20 @@
 from flask import Flask, request
 import requests
 import os
-from collections import defaultdict
 
 app = Flask(__name__)
 
-# ================== TOKENS ==================
+# ================= TOKENS =================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# ================== CHAT MEMORY ==================
-# har user ka alag conversation memory
-chat_memory = defaultdict(list)
 
-# ================== SEND MESSAGE ==================
+# ================= SAFE TELEGRAM SEND =================
 def send_message(chat_id, text):
     if not text:
         text = "Samajh gaya... thoda aur detail me bata 🙂"
 
-    # Telegram limit handling
+    # telegram long message split
     parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
     for part in parts:
@@ -32,74 +28,69 @@ def send_message(chat_id, text):
         except:
             pass
 
-# ================== AI REPLY ==================
-def get_ai_reply(user_message, chat_id):
+
+# ================= AI REPLY =================
+def get_ai_reply(user_message):
+
     try:
-        # user message memory me save
-        chat_memory[chat_id].append({
-            "role": "user",
-            "content": user_message
-        })
-
-        # sirf last 8 messages rakhenge
-        history = chat_memory[chat_id][-8:]
-
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json"
+                "HTTP-Referer": "https://telegram.org",
+                "X-Title": "ReplyShastra"
             },
             json={
                 "model": "openrouter/auto",
-                "temperature": 0.7,
-                "max_tokens": 120,
                 "messages": [
                     {
                         "role": "system",
-                        "content": """
-You are a real Indian boyfriend writing a WhatsApp message to his girlfriend.
+                        "content": """You are a 23 year old Indian boy chatting with his girlfriend on WhatsApp.
 
-You must understand previous conversation context.
+You are NOT an assistant.
+You are NOT a dating coach.
 
-STRICT RULES:
-- Only 1 final sendable message
-- Max 2 lines
+You write the EXACT message he should send her.
+
+Rules:
+- Only 1 final message
+- Maximum 2 lines
 - Hinglish only
-- Romantic, calm and natural
-- No advice
 - No explanation
-- No questions asking for details
-- Never say: 'detail bata', 'samjha nahi', 'kya hua'
+- No advice
+- No options
+- No bullet points
+- No paragraphs
+- Must feel real, emotional and natural
 
-Only the exact WhatsApp text he should send.
-"""
+Output must be directly sendable WhatsApp text only."""
+                    },
+                    {
+                        "role": "user",
+                        "content": user_message
                     }
-                ] + history
+                ],
+                "temperature": 0.9,
+                "max_tokens": 120
             },
-            timeout=60
+            timeout=90
         )
 
         data = response.json()
+        print("AI RESPONSE:", data)
 
-        if "choices" in data:
-            ai_text = data["choices"][0]["message"]["content"].strip()
+        if "choices" in data and len(data["choices"]) > 0:
+            reply = data["choices"][0]["message"]["content"]
+            return reply.strip()
 
-            # assistant reply bhi memory me save
-            chat_memory[chat_id].append({
-                "role": "assistant",
-                "content": ai_text
-            })
-
-            return ai_text
-
-        return "Network slow hai… 10 sec baad bhej 🙂"
+        return "Network slow lag raha... 10 sec baad fir bhej 🙂"
 
     except Exception as e:
-        print("AI ERROR:", e)
-        return "Server busy hai… thodi der baad try karo 🙂"
+        print("ERROR:", e)
+        return "Server thoda busy hai... 20 sec baad fir bhej 🙂"
 
-# ================== WEBHOOK ==================
+
+# ================= TELEGRAM WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
@@ -109,16 +100,18 @@ def webhook():
         user_message = data["message"].get("text", "")
 
         if user_message:
-            reply = get_ai_reply(user_message, chat_id)
+            reply = get_ai_reply(user_message)
             send_message(chat_id, reply)
 
     return "ok"
 
-# ================== HOME ==================
+
+# ================= START PAGE =================
 @app.route("/")
 def home():
     return "ReplyShastra AI Running 🚀"
 
-# ================== RUN ==================
+
+# ================= RUN =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
