@@ -4,81 +4,96 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+# -------- Telegram Send Function --------
+def send_message(chat_id, text):
+    if not text:
+        text = "Samajh gaya... thoda aur detail me bata 🙂"
 
+    # Telegram max 4096 chars — 3500 pe split
+    parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
-def ask_ai(user_message):
+    for part in parts:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": part
+        }
+        try:
+            requests.post(url, json=payload, timeout=15)
+        except:
+            pass
+
+# -------- AI Reply Function --------
+def get_ai_reply(user_text):
+
+    system_prompt = """
+Tu ek expert relationship coach aur WhatsApp reply writer hai.
+
+Rules:
+- Sirf message likhega jo ladka apni girlfriend ko bheje
+- Explanation, tips, ya headings nahi dena
+- Natural Hinglish use kar
+- Short, emotional aur realistic message likh
+- Over filmy ya cringe nahi
+- Ek hi final message dena (2-4 lines max)
+
+Situation: ladki sad / naraz / ignore / emotional ho sakti hai
+Goal: ladki ko comfort feel ho aur reply kare
+"""
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "mistralai/mistral-7b-instruct:free",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text}
+        ],
+        "temperature": 0.8,
+        "max_tokens": 200
+    }
+
     try:
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "HTTP-Referer": "https://replyshastraai-production.up.railway.app",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "deepseek/deepseek-chat:free",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": """You are ReplyShastra, a Hindi relationship assistant.
-Write only the exact WhatsApp message user should send.
-1-3 lines only.
-No explanation.
-Natural Hinglish.
-Emotional and caring tone."""
-                    },
-                    {
-                        "role": "user",
-                        "content": user_message
-                    }
-                ]
-            },
-            timeout=40
-        )
-
-        # DEBUG PRINT
-        print("RAW AI:", response.text)
-
-        data = response.json()
-
-        # SAFE PARSE (IMPORTANT FIX)
-        if "choices" in data and len(data["choices"]) > 0:
-            return data["choices"][0]["message"]["content"].strip()
-        else:
-            return "Sun na... thoda sa busy tha, par main yahin hoon. Baat karni ho to message kar dena 🙂"
-
+        r = requests.post(url, headers=headers, json=data, timeout=60)
+        res = r.json()
+        return res["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        print("AI FAILURE:", e)
-        return "Thoda network slow hai... par main yahin hoon 🙂"
+        print("AI ERROR:", e)
+        return "Thoda network slow lag raha... 1 min me phir se bhej 🙂"
 
-
-@app.route("/", methods=["GET"])
-def home():
-    return "ReplyShastra Working"
-
-
+# -------- Telegram Webhook --------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
-    print("TELEGRAM UPDATE:", data)
 
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
-        user_text = data["message"].get("text", "")
+        text = data["message"].get("text", "")
 
-        ai_reply = ask_ai(user_text)
+        # /start command
+        if text == "/start":
+            send_message(chat_id,
+            "Hi! Main ReplyShastra hoon 🙂\n\n"
+            "GF ignore, naraz, breakup, crush — sab handle karenge.\n\n"
+            "Apni situation detail me bata 👇\n"
+            "(Main tujhe exact message likh ke dunga jo tu send karega)")
+            return "ok"
 
-        requests.post(TELEGRAM_URL, json={
-            "chat_id": chat_id,
-            "text": ai_reply
-        })
+        # normal message
+        ai_reply = get_ai_reply(text)
+        send_message(chat_id, ai_reply)
 
     return "ok"
 
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+# -------- Health Check --------
+@app.route("/")
+def home():
+    return "ReplyShastra running"
