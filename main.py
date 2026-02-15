@@ -9,11 +9,12 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# ================= SEND MESSAGE (LONG SAFE) =================
+# =============== SEND MESSAGE (SAFE SPLIT) ===============
 def send_message(chat_id, text):
     if not text:
-        text = "Samajh gaya... thoda aur detail me bata 🙂"
+        text = "Samajh gaya... thoda aur clear bata 🙂"
 
+    # Telegram max 4096 characters — hum 3500 pe split karenge
     parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
     for part in parts:
@@ -28,29 +29,9 @@ def send_message(chat_id, text):
             pass
 
 
-# ================= AI REPLY FUNCTION (FIXED) =================
+# =============== AI REPLY FUNCTION ===============
 def get_ai_reply(user_message):
     try:
-
-        # ---- FORCE CONTEXT (MOST IMPORTANT FIX) ----
-        forced_context = f"""
-Situation: Indian relationship problem.
-
-Boy message:
-{user_message}
-
-He is asking help about his girlfriend.
-
-You must:
-- explain what girl is thinking
-- tell him what to do
-- give ready WhatsApp messages
-
-Never ask for more detail.
-Never say 'detail bata'.
-Never ask questions.
-"""
-
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={
@@ -59,33 +40,43 @@ Never ask questions.
                 "X-Title": "ReplyShastra"
             },
             json={
-                "model": "mistralai/mistral-7b-instruct",
+                "model": "nousresearch/nous-hermes-2-mixtral-8x7b-dpo",
+                "temperature": 0.7,
                 "messages": [
                     {
                         "role": "system",
-                        "content": """You are a real Indian male friend helping your bro with girlfriend problems.
+                        "content": """
+You are NOT an AI assistant.
 
-Style:
-Hinglish
-Friendly
-Confident
-No lecture
-No psychology jargon
+You are his real best friend — a 23 year old Indian boy helping his bro with girlfriend problems.
 
-You NEVER ask questions.
+You do relationship guidance in a natural desi way.
 
-Always:
-1) Explain situation
-2) Tell what he should do
-3) Give 2-3 exact copy-paste messages he can send."""
+STRICT RULES:
+
+- Hinglish only
+- Talk casually like a real boy (no counselor tone)
+- Never ask him questions
+- Never say "detail bata"
+- Never give psychology lectures
+- No long paragraphs
+- No emojis spam
+- Do not repeat sentences
+
+Every reply MUST follow this structure:
+
+1) Shortly tell what the girl is thinking
+2) Tell him exactly what he should do now (clear action)
+3) Give 2-3 ready WhatsApp messages he can copy-paste and send
+
+Your reply should feel like a real friend guiding his bro, not a chatbot.
+"""
                     },
                     {
                         "role": "user",
-                        "content": forced_context
+                        "content": user_message
                     }
-                ],
-                "temperature": 0.85,
-                "max_tokens": 700
+                ]
             },
             timeout=90
         )
@@ -95,14 +86,14 @@ Always:
         if "choices" in data:
             return data["choices"][0]["message"]["content"]
         else:
-            return "Network slow hai... fir bhej 🙂"
+            return "Server thoda busy hai... 15 sec baad fir bhej 🙂"
 
     except Exception as e:
         print("ERROR:", e)
-        return "Server busy hai... 20 sec baad bhej 🙂"
+        return "Server connect nahi ho pa raha... thodi der baad try karo 🙂"
 
 
-# ================= TELEGRAM WEBHOOK =================
+# =============== TELEGRAM WEBHOOK ===============
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
@@ -118,12 +109,12 @@ def webhook():
     return "ok"
 
 
-# ================= START MESSAGE =================
+# =============== HOME CHECK ===============
 @app.route("/")
 def home():
     return "ReplyShastra AI Running 🚀"
 
 
-# ================= RUN =================
+# =============== RUN SERVER ===============
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
