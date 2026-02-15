@@ -4,17 +4,17 @@ import os
 
 app = Flask(__name__)
 
-# ENV TOKENS (Railway me set honge)
+# ================= TOKENS =================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# ========== TELEGRAM MESSAGE SENDER ==========
+# ================= TELEGRAM SEND =================
 def send_message(chat_id, text):
     if not text:
         text = "Samajh gaya... thoda aur detail me bata 🙂"
 
-    # Telegram limit 4096 chars (safe split)
+    # Telegram limit fix (long reply split)
     parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
     for part in parts:
@@ -29,107 +29,109 @@ def send_message(chat_id, text):
             pass
 
 
-# ========== AI REPLY ==========
+# ================= AI REPLY =================
 def get_ai_reply(user_message):
     try:
         response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            url="https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
                 "HTTP-Referer": "https://telegram.org",
                 "X-Title": "ReplyShastra"
             },
             json={
-                "model": "mistralai/mistral-7b-instruct",
-                "temperature": 0.7,
-                "max_tokens": 800,
+                "model": "openrouter/auto",
                 "messages": [
                     {
                         "role": "system",
-                        "content": """You are ReplyShastra — a 23 year old Indian boy + relationship expert friend.
+                        "content": """You are ReplyShastra.
+
+You are NOT a therapist.
+You are NOT an AI assistant.
+
+You are a 23 year old Indian boy helping your bro handle his girlfriend situation on WhatsApp.
 
 Your job:
-Understand the user's relationship problem and explain the psychology behind what the girl might be thinking. Then give step-by-step advice AND ready-to-send messages.
+Give real practical help and exact messages he should send.
 
-Rules:
-- Talk like a real human friend (Hinglish)
-- Be emotionally understanding
-- No short robotic replies
-- First understand situation
-- Then explain what is happening
-- Then tell exactly what he should do
-- Then give 2-3 ready-to-send WhatsApp messages
-- Never say "I am an AI"
-- Never ask too many questions
-- If user writes very small message (like "gf ignore kar rahi hai") you must still give a full explanation and solution."""
+VERY IMPORTANT STYLE:
+- Hinglish
+- Simple words
+- Friendly tone (bhai, samajh, dekh)
+- No long essays
+- No theory lectures
+- No psychology paragraphs
+- No motivational speech
+
+RESPONSE FORMAT (STRICT):
+1) First: Explain in 4-6 lines what the girl is likely thinking.
+2) Second: Tell exactly what he should do right now.
+3) Third: Give 2 or 3 READY-TO-SEND WhatsApp messages.
+
+READY MESSAGE RULES:
+- Only 1-2 lines each
+- Natural texting language
+- Copy-paste sendable
+- No long English paragraphs
+- No emoji spam
+- No numbering
+
+CRITICAL:
+If user writes small input like "gf ignore kar rahi hai"
+→ You STILL give full help.
+
+Never say:
+"samjha nahi"
+"detail bata"
+"tell me more"
+
+Always give solution."""
                     },
                     {
                         "role": "user",
                         "content": user_message
                     }
-                ]
+                ],
+                "temperature": 0.9,
+                "max_tokens": 500
             },
             timeout=90
         )
 
         data = response.json()
 
-        if "choices" in data and len(data["choices"]) > 0:
-            return data["choices"][0]["message"]["content"].strip()
-
-        return "Network thoda slow hai... ek baar aur bhej 🙂"
+        if "choices" in data:
+            return data["choices"][0]["message"]["content"]
+        else:
+            return "Network thoda slow hai... 10 sec baad fir bhej 🙂"
 
     except Exception as e:
-        print("AI ERROR:", e)
-        return "Server busy hai... 20 sec baad try karo 🙂"
+        print("ERROR:", e)
+        return "Server connect nahi ho pa raha... thodi der baad try karo 🙂"
 
 
-# ========== TELEGRAM WEBHOOK ==========
+# ================= WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    try:
-        data = request.json
+    data = request.json
 
-        if "message" not in data:
-            return "ok"
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+        user_message = data["message"].get("text", "")
 
-        message = data["message"]
+        if user_message:
+            reply = get_ai_reply(user_message)
+            send_message(chat_id, reply)
 
-        if "text" not in message:
-            return "ok"
-
-        chat_id = message["chat"]["id"]
-        user_message = message["text"]
-
-        # /start greeting
-        if user_message == "/start":
-            intro = """Hi! Main ReplyShastra hoon 🙂
-
-GF ignore, naraz, breakup, crush — sab handle karenge.
-
-Apni situation detail me bata 👇
-(Main tujhe exact samjhaunga + ready message bhi dunga)"""
-            send_message(chat_id, intro)
-            return "ok"
-
-        # AI reply
-        reply = get_ai_reply(user_message)
-        send_message(chat_id, reply)
-
-        return "ok"
-
-    except Exception as e:
-        print("WEBHOOK ERROR:", e)
-        return "ok"
+    return "ok"
 
 
-# ========== HEALTH CHECK ==========
+# ================= START CHECK =================
 @app.route("/")
 def home():
-    return "ReplyShastra running"
+    return "ReplyShastra AI Running 🚀"
 
 
-# ========== RUN ==========
+# ================= RUN =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
