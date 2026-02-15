@@ -9,12 +9,12 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# ================= TELEGRAM SEND =================
+# ================= SEND MESSAGE (SAFE SPLIT) =================
 def send_message(chat_id, text):
     if not text:
-        text = "Samajh gaya... thoda aur detail me bata 🙂"
+        text = "Samajh nahi aaya... thoda detail me bata 🙂"
 
-    # Telegram 4096 char limit → hum 3500 pe split karenge
+    # Telegram limit 4096 — safe split
     parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
     for part in parts:
@@ -24,85 +24,92 @@ def send_message(chat_id, text):
             "text": part
         }
         try:
-            requests.post(url, json=payload, timeout=15)
+            requests.post(url, json=payload, timeout=20)
         except:
             pass
 
 
 # ================= AI REPLY =================
 def get_ai_reply(user_message):
-
-    system_prompt = """
-You are ReplyShastra.
-
-You are NOT an assistant, NOT a therapist, NOT a coach.
-
-You are a 24 year old Indian boy helping another boy with his relationship problems like a real friend.
-
-You talk casually like a normal Indian guy on WhatsApp/Telegram.
-
-VERY IMPORTANT RULES:
-
-- Talk in natural Hinglish
-- No long lectures
-- No motivational lines
-- No formal language
-- No bullet points
-- No multiple options
-- No "it depends"
-- Max 5-6 lines explanation
-
-Your response structure MUST be:
-
-1) First explain what girl is likely thinking (simple psychology)
-2) Then clearly tell what he should do RIGHT NOW
-3) Then give EXACT message he should send (copy-paste)
-
-The final ready message MUST be inside quotes.
-
-Example style:
-
-Samajh kya ho raha hai — woh hurt hai ya wait kar rahi hai ki tu initiate kare.
-
-Ab tu call nahi karega. 5-6 ghante kuch nahi bhejna.
-
-Uske baad ye bhej:
-
-"Achha sun, agar busy ho ya thoda space chahiye toh le lo. Bas itna bata dena sab theek hai, I’m here."
-"""
-
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": "https://replyshastra.ai",
+                "X-Title": "ReplyShastra",
                 "Content-Type": "application/json"
             },
             json={
                 "model": "openrouter/auto",
-                "temperature": 0.8,
-                "max_tokens": 700,
+                "temperature": 0.85,
+                "max_tokens": 900,
                 "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
+                    {
+                        "role": "system",
+                        "content": """
+You are ReplyShastra — a smart Indian relationship advisor friend.
+
+You talk like a real 23-27 year old Indian male best friend, not like an AI.
+
+Your job:
+Understand the user's relationship situation and give:
+1) Clear explanation of what the girl/boy is thinking psychologically
+2) What mistake the user is doing (if any)
+3) Exact step-by-step what he should do next
+4) Then give 2-3 READY-TO-SEND messages he can copy paste
+
+Style rules:
+- Hinglish (natural)
+- Friendly "bhai" tone
+- No robotic language
+- No "as an AI"
+- No bullet points symbols like •
+- Write like WhatsApp chat
+- Emotional + practical
+
+If user writes short message like:
+"meri gf ignore kar rahi hai"
+→ you MUST still give full solution.
+
+Never ask for unnecessary details first.
+First help, then ask small clarification if needed.
+"""
+                    },
+                    {
+                        "role": "user",
+                        "content": user_message
+                    }
                 ]
             },
             timeout=90
         )
 
         data = response.json()
+        print("OPENROUTER RESPONSE:", data)
 
+        # ======= PARSER (handles both formats) =======
         if "choices" in data and len(data["choices"]) > 0:
-            return data["choices"][0]["message"]["content"].strip()
+            message = data["choices"][0]["message"]
 
-        return "Network thoda slow hai… fir se bhej 🙂"
+            # normal string response
+            if isinstance(message.get("content"), str):
+                return message["content"].strip()
+
+            # list response format
+            if isinstance(message.get("content"), list):
+                for part in message["content"]:
+                    if "text" in part:
+                        return part["text"].strip()
+
+        return "Network thoda slow hai… ek baar fir bhej 🙂"
 
     except Exception as e:
         print("AI ERROR:", e)
-        return "Server busy hai… 20 sec baad try karo 🙂"
+        return "Server busy hai… 20 sec baad try kar 🙂"
 
 
-# ================= WEBHOOK =================
+# ================= TELEGRAM WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
@@ -112,24 +119,23 @@ def webhook():
             return "ok"
 
         message = data["message"]
-        chat_id = message["chat"]["id"]
 
-        # /start greeting
-        if "text" in message and message["text"].lower() == "/start":
-            greeting = """Hi! Main ReplyShastra hoon 🙂
+        if "text" not in message:
+            return "ok"
+
+        chat_id = message["chat"]["id"]
+        user_message = message["text"]
+
+        # ignore commands except /start
+        if user_message == "/start":
+            welcome = """Hi! Main ReplyShastra hoon 🙂
 
 GF ignore, naraz, breakup, crush — sab handle karenge.
 
 Apni situation detail me bata 👇
 (Main tujhe exact samjhaunga + ready message bhi dunga)"""
-
-            send_message(chat_id, greeting)
+            send_message(chat_id, welcome)
             return "ok"
-
-        if "text" not in message:
-            return "ok"
-
-        user_message = message["text"]
 
         reply = get_ai_reply(user_message)
         send_message(chat_id, reply)
@@ -141,10 +147,10 @@ Apni situation detail me bata 👇
         return "ok"
 
 
-# ================= HOME =================
+# ================= HEALTH CHECK =================
 @app.route("/")
 def home():
-    return "ReplyShastra running"
+    return "ReplyShastra Running 🚀"
 
 
 # ================= RUN =================
