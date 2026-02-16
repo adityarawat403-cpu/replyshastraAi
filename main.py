@@ -38,56 +38,36 @@ def send_message(chat_id, text):
 
 
 # ---------------- AI REPLY ----------------
-def get_ai_reply(user_message):
 
-    # small message filter (very important)
+
+
+# ---------------- WEBHOOK ----------------
+@adef get_ai_reply(user_message):
+
     if len(user_message.strip()) < 4:
         return "Thoda detail me bata bhai, kya hua?"
 
-    # SYSTEM PROMPT (REAL BRO BRAIN)
     system_prompt = """
 You are ReplyShastra.
 
-You are a supportive male friend helping a boy handle his relationship.
+You are a male best friend helping a boy fix his relationship.
 
-He is NOT chatting with his girlfriend.
-He is explaining the situation to YOU.
+He is not chatting with his girlfriend.
+He is telling YOU the situation.
 
-Your task:
-First understand what happened emotionally between them.
-Then write the exact WhatsApp message he should send to his girlfriend.
+Your job:
+Understand the emotional situation first.
+Then generate the exact WhatsApp message he should send her.
 
-Internally think:
-- what she is feeling
-- what mistake he made
-- what message will calm her
-
-But NEVER show this thinking.
-
-Output rules:
-- Only the message to send
-- Max 2 short lines
-- Natural Hinglish texting
-- Calm, caring, mature
-- Non-needy
+Rules:
+- Only message to send
+- Max 2 lines
+- Hinglish natural texting
+- Caring but self-respecting
 - No advice
-- No lectures
-- No bullet points
-- Do not act like the girl
-- Do not talk to the boy
-
-Goal: improve their relationship.
-"""
-
-    analysis_context = f"""
-My friend told me this about his girlfriend:
-
-\"\"\"
-{user_message}
-\"\"\"
-
-Write the exact message he should send her.
-Only the sendable WhatsApp message.
+- No explanation
+- No talking to boy
+- No acting like girl
 """
 
     try:
@@ -101,34 +81,35 @@ Only the sendable WhatsApp message.
                 "model": "llama3-70b-8192",
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": analysis_context}
+                    {"role": "user", "content": user_message}
                 ],
-                "temperature": 0.5,
+                "temperature": 0.6,
                 "max_tokens": 120
             },
-            timeout=60
+            timeout=45
         )
 
         data = response.json()
 
-        if "choices" in data:
-            reply = data["choices"][0]["message"]["content"].strip()
+        # ---- DEBUG PRINT (IMPORTANT) ----
+        print("GROQ RESPONSE:", data)
 
-            # remove quotes if AI adds them
-            if reply.startswith('"') and reply.endswith('"'):
-                reply = reply[1:-1]
-
+        # handle success
+        if data.get("choices"):
+            reply = data["choices"][0]["message"]["content"]
+            reply = reply.strip().replace('"','')
             return reply
 
-        return "Aaj thoda server slow hai, 20 sec baad bhej 🙂"
+        # handle groq error
+        if data.get("error"):
+            print("GROQ ERROR:", data["error"])
+            return "Ek sec bhai, dobara bhej 🙂"
+
+        return "Thoda network slow hai, 10 sec baad bhej 🙂"
 
     except Exception as e:
-        print("AI ERROR:", e)
-        return "Server busy hai, thoda baad bhej 🙂"
-
-
-# ---------------- WEBHOOK ----------------
-@app.route("/webhook", methods=["POST"])
+        print("AI FAILED:", str(e))
+        return "Server busy hai, 15 sec baad bhej 🙂"pp.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
 
