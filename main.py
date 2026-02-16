@@ -1,6 +1,6 @@
 import os
 import requests
-from flask import Flask, request
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
@@ -9,35 +9,31 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-# -------- Telegram Send Function --------
+# ---------- Telegram Send ----------
 def send_message(chat_id, text):
-    requests.post(TELEGRAM_URL, json={
-        "chat_id": chat_id,
-        "text": text
-    })
+    try:
+        requests.post(TELEGRAM_URL, json={
+            "chat_id": chat_id,
+            "text": text
+        })
+    except Exception as e:
+        print("Telegram Send Error:", e)
 
-# -------- GROQ AI Reply --------
+# ---------- AI Reply ----------
 def get_ai_reply(user_message):
 
     prompt = f"""
-Tu ek real Indian ladka dost hai — relationship expert nahi, dost.
+Tu ek real Indian ladka dost hai.
 
-User apni girlfriend/relationship problem leke aata hai.
-Tera kaam:
-1) Pehle uski situation samajh
-2) Emotional support de
-3) Fir practical advice de
-4) Fir EXACT message likh jo wo ladki ko bhej sake
+User relationship problem leke aaya hai.
+Pehle usko samajh,
+fir emotional support,
+fir practical advice,
+aur last me exact message likh jo wo ladki ko bhej sake.
 
-Rules:
-- Hinglish me baat kar
-- Human jaisa lagna chahiye (AI nahi)
-- Kabhi mat bolna "as an AI"
-- Short nahi — detailed helpful reply
-- Ladke ki side samajh
+Hinglish me bol.
 
-User problem:
-{user_message}
+User: {user_message}
 """
 
     headers = {
@@ -51,40 +47,50 @@ User problem:
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.8,
-        "max_tokens": 800
+        "max_tokens": 700
     }
 
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers=headers,
-        json=data
-    )
-
     try:
-        return response.json()["choices"][0]["message"]["content"]
-    except:
-        print("GROQ RESPONSE:", response.text)
-        return "Bhai thoda network issue aa gaya... 10 sec baad fir likh 🙏"
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=25
+        )
 
-# -------- Telegram Webhook --------
+        res_json = response.json()
+        print("GROQ RESPONSE:", res_json)
+
+        return res_json["choices"][0]["message"]["content"]
+
+    except Exception as e:
+        print("AI ERROR:", e)
+        return "Bhai AI thoda soch raha hai 🤯 20 sec baad fir likh."
+
+# ---------- Webhook ----------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
 
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
-        text = data["message"].get("text", "")
+    if "message" not in data:
+        return jsonify({"status": "no message"})
 
-        if text == "/start":
-            send_message(chat_id,
-            "Bhai aa gaya tu 🤝\n\n"
-            "Main ReplyShastra hu — tera relationship dost.\n\n"
-            "Apni problem normal language me likh:\n"
-            "jaise — 'meri gf ignore kar rahi hai'")
-            return "ok"
+    chat_id = data["message"]["chat"]["id"]
+    text = data["message"].get("text", "")
 
-        reply = get_ai_reply(text)
-        send_message(chat_id, reply)
+    # start command
+    if text == "/start":
+        send_message(chat_id,
+        "Bhai aa gaya tu 🤝\n"
+        "Apni problem likh — main help karta hu.")
+        return "ok"
+
+    # typing message
+    send_message(chat_id, "Soch raha hu bhai... 🤔")
+
+    reply = get_ai_reply(text)
+
+    send_message(chat_id, reply)
 
     return "ok"
 
