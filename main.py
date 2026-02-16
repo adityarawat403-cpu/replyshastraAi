@@ -1,6 +1,7 @@
 from flask import Flask, request
 import requests
 import os
+import threading
 import time
 
 app = Flask(__name__)
@@ -25,55 +26,46 @@ def send_message(chat_id, text):
 
 
 # ================= TYPING ANIMATION =================
-def show_typing(chat_id):
+def typing_action(chat_id, stop_event):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
-    payload = {
-        "chat_id": chat_id,
-        "action": "typing"
-    }
-    try:
-        for _ in range(5):   # ~5 seconds typing
-            requests.post(url, json=payload, timeout=10)
-            time.sleep(1)
-    except:
-        pass
+
+    while not stop_event.is_set():
+        try:
+            requests.post(url, json={
+                "chat_id": chat_id,
+                "action": "typing"
+            }, timeout=10)
+        except:
+            pass
+        time.sleep(4)
 
 
-# ================= AI REPLY (GROQ) =================
+# ================= AI REPLY =================
 def get_ai_reply(chat_id, user_message):
 
     if chat_id not in user_memory:
         user_memory[chat_id] = []
 
-    # store user msg
+    # store user message
     user_memory[chat_id].append({"role": "user", "content": user_message})
-
-    # keep last context
     user_memory[chat_id] = user_memory[chat_id][-12:]
 
     system_prompt = """
 You are ReplyShastra.
 
-A boy will tell you what happened with his girlfriend.
-
-First understand the situation and her emotions.
-
-Then write the exact WhatsApp message he should send her.
+A boy tells you what happened with his girlfriend.
+Understand the situation and write the exact WhatsApp message he should send.
 
 Rules:
-- Only the message
+- Only the final message
 - Maximum 2 short lines
-- Natural Hinglish (real Indian texting)
-- Soft, calm, emotionally mature tone
+- Natural Hinglish
+- Soft and respectful tone
+- No advice
+- No explanation
+- No bullet points
 
-Never:
-- give advice
-- explain anything
-- ask the user questions
-- act like a coach
-
-Allowed emoji: ❤️ or 🙂
-Maximum one emoji.
+Allowed emoji: ❤️ 🙂
 
 Output must look exactly like a WhatsApp message.
 """
@@ -90,15 +82,29 @@ Output must look exactly like a WhatsApp message.
             json={
                 "model": "llama3-70b-8192",
                 "messages": messages,
-                "temperature": 0.9,
+                "temperature": 0.85,
                 "max_tokens": 120
             },
             timeout=60
         )
 
+        # अगर Groq error दे
+        if response.status_code != 200:
+            print("STATUS ERROR:", response.text)
+            return "Dubara bhej zara 🙂"
+
         data = response.json()
 
+        # अगर choices missing
+        if "choices" not in data:
+            print("GROQ RAW:", data)
+            return "Ek baar aur bhej 🙂"
+
         reply = data["choices"][0]["message"]["content"].strip()
+
+        # blank reply protection
+        if not reply or len(reply) < 2:
+            return "Dubara likh 🙂"
 
         # save AI reply
         user_memory[chat_id].append({"role": "assistant", "content": reply})
@@ -106,8 +112,8 @@ Output must look exactly like a WhatsApp message.
         return reply
 
     except Exception as e:
-        print("GROQ ERROR:", e)
-        return "Ek sec… fir bhej 🙂"
+        print("FULL ERROR:", e)
+        return "Thoda network issue, fir bhej 🙂"
 
 
 # ================= WEBHOOK =================
@@ -115,37 +121,47 @@ Output must look exactly like a WhatsApp message.
 def webhook():
     data = request.json
 
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
-        user_message = data["message"].get("text", "")
+    if "message" not in data:
+        return "ok"
 
-        if user_message:
+    chat_id = data["message"]["chat"]["id"]
+    user_message = data["message"].get("text", "")
 
-            # START COMMAND
-            if user_message.lower() == "/start":
-                user_memory[chat_id] = []
-                send_message(chat_id,
+    if not user_message:
+        return "ok"
+
+    # ===== START COMMAND =====
+    if user_message.lower() == "/start":
+        user_memory[chat_id] = []
+        send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
 
 GF ignore, naraz, breakup, late reply — sab handle karenge.
 
 Apni situation simple likh 👇""")
-                return "ok"
+        return "ok"
 
-            # typing animation
-            show_typing(chat_id)
+    # ===== TYPING THREAD START =====
+    stop_event = threading.Event()
+    t = threading.Thread(target=typing_action, args=(chat_id, stop_event))
+    t.start()
 
-            # AI reply
-            reply = get_ai_reply(chat_id, user_message)
+    # ===== AI REPLY =====
+    reply = get_ai_reply(chat_id, user_message)
 
-            send_message(chat_id, reply)
+    # stop typing
+    stop_event.set()
+    t.join()
+
+    # send reply
+    send_message(chat_id, reply)
 
     return "ok"
 
 
 @app.route("/")
 def home():
-    return "ReplyShastra Groq Running 🚀"
+    return "ReplyShastra Running 🚀"
 
 
 if __name__ == "__main__":
