@@ -1,101 +1,91 @@
 from flask import Flask, request
 import requests
 import os
-import threading
 import time
+import threading
 
 app = Flask(__name__)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# ===== MEMORY STORE =====
+# ========= MEMORY =========
 user_memory = {}
 
-
-# ================= TELEGRAM SEND =================
+# ========= TELEGRAM SEND =========
 def send_message(chat_id, text):
+
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+
     payload = {
         "chat_id": chat_id,
         "text": text
     }
+
     try:
-        requests.post(url, json=payload, timeout=15)
+        requests.post(url, json=payload, timeout=20)
     except:
         pass
 
 
-# ================= TYPING ANIMATION =================
-typing_flags = {}
-
-def typing_loop(chat_id):
-    while typing_flags.get(chat_id, False):
-        try:
-            requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction",
-                json={"chat_id": chat_id, "action": "typing"},
-                timeout=10
-            )
-        except:
-            pass
-        time.sleep(4)
+# ========= TYPING ANIMATION =========
+def typing(chat_id):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
+    payload = {
+        "chat_id": chat_id,
+        "action": "typing"
+    }
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except:
+        pass
 
 
-# ================= AI REPLY =================
+# ========= AI REPLY =========
 def get_ai_reply(chat_id, user_message):
 
-    # ---- MEMORY INIT ----
+    # save user message
     if chat_id not in user_memory:
         user_memory[chat_id] = []
 
-    # save user msg
     user_memory[chat_id].append({"role": "user", "content": user_message})
-    user_memory[chat_id] = user_memory[chat_id][-12:]
+
+    # keep last 10 messages
+    user_memory[chat_id] = user_memory[chat_id][-10:]
 
 
     system_prompt = """
 You are ReplyShastra.
 
-You are NOT the boyfriend.
-You are a ghostwriter.
+A boy will tell you his situation about a girl.
 
-A boy will tell you what happened between him and his girlfriend.
-Your job is to write the exact WhatsApp message HE should send TO HER.
-
-Important:
-The message must look like it is written by the boy and sent to his girlfriend.
-
-Write ONLY the message he should copy-paste and send.
-
-Style:
-• Natural Indian Hinglish
-• Caring, calm, emotionally understanding
-• Mature (not cheesy, not poetic)
+Your job:
+Write the exact WhatsApp message he should send her.
 
 Rules:
-• Maximum 2 short lines
-• No explanation
-• No advice
-• Do not talk to the user
-• Do not analyse
-• Do not instruct
+- Only the message to send
+- Maximum 2 short lines
+- Natural Hinglish
+- Soft respectful tone
+- No explanation
+- No advice
+- No coaching
 
-Always assume:
-The girl is upset and the boy wants to fix things.
-
-Output:
-Only the sendable WhatsApp message.
-Nothing else.
+Never ask questions to the user.
+Never write paragraphs.
+Just the sendable message.
 """
+
 
     messages = [{"role": "system", "content": system_prompt}] + user_memory[chat_id]
 
-    # start typing animation
-    typing_flags[chat_id] = True
-    threading.Thread(target=typing_loop, args=(chat_id,), daemon=True).start()
-
     try:
+
+        # typing animation while thinking
+        for i in range(3):
+            typing(chat_id)
+            time.sleep(2)
+
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={
@@ -103,39 +93,37 @@ Nothing else.
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama3-70b-8192",
+                "model": "llama-3.3-70b-versatile",
                 "messages": messages,
-                "temperature": 0.7
+                "temperature": 0.8,
+                "max_tokens": 120,
+                "top_p": 1
             },
-            timeout=70
+            timeout=90
         )
-
-        typing_flags[chat_id] = False
 
         data = response.json()
 
-        if "choices" in data:
-            reply = data["choices"][0]["message"]["content"].strip()
+        reply = data["choices"][0]["message"]["content"].strip()
 
-            # save assistant reply
-            user_memory[chat_id].append({"role": "assistant", "content": reply})
+        # save AI reply
+        user_memory[chat_id].append({"role": "assistant", "content": reply})
 
-            return reply
-
-        return "Thoda sa network issue aaya… ek baar fir bhej 🙂"
+        return reply
 
     except Exception as e:
-        typing_flags[chat_id] = False
-        print("AI ERROR:", e)
-        return "Server busy tha… 10 sec baad fir bhej 🙂"
+        print("GROQ ERROR:", e)
+        return "Thoda network slow hai, 20 sec baad try kar 🙂"
 
 
-# ================= WEBHOOK =================
+# ========= WEBHOOK =========
 @app.route("/webhook", methods=["POST"])
 def webhook():
+
     data = request.json
 
     if "message" in data:
+
         chat_id = data["message"]["chat"]["id"]
         user_message = data["message"].get("text", "")
 
@@ -143,10 +131,11 @@ def webhook():
 
             if user_message.lower() == "/start":
                 user_memory[chat_id] = []
+
                 send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
 
-GF ignore, naraz, breakup, late reply — sab handle karenge.
+GF ignore, naraz, late reply — sab handle karenge.
 
 Apni situation simple likh 👇""")
                 return "ok"
