@@ -1,141 +1,91 @@
 import os
 import requests
-from flask import Flask, request
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-GROQ_API = os.environ.get("GROQ_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/"
+TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
+SYSTEM_PROMPT = """
+You are ReplyShastra — a real caring male best friend.
+You talk in Hinglish.
+You understand emotions first, then give advice.
+Never act like AI.
+Always:
+1) First understand situation
+2) Then emotionally connect
+3) Then give exact message user should send
 
-# ---------------- TELEGRAM SEND ---------------- #
-
-def send_message(chat_id, text):
-    requests.post(
-        TELEGRAM_URL + "sendMessage",
-        json={
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML"
-        },
-        timeout=20
-    )
-
-
-def send_typing(chat_id):
-    requests.post(
-        TELEGRAM_URL + "sendChatAction",
-        json={
-            "chat_id": chat_id,
-            "action": "typing"
-        },
-        timeout=10
-    )
-
-
-# ---------------- AI BRAIN ---------------- #
-
-def ask_ai(user_text):
-
-    try:
-        url = "https://api.groq.com/openai/v1/chat/completions"
-
-        headers = {
-            "Authorization": f"Bearer {GROQ_API}",
-            "Content-Type": "application/json"
-        }
-
-        system_prompt = f"""
-Tu ek AI chatbot nahi hai.
-
-Tu ek real dost hai — ek experienced ladka jo relationship situations samajhta hai.
-
-Tera kaam:
-1) Pehle user ki situation ko samajh
-2) Ladki ki psychology explain kar
-3) User ki galti ya issue identify kar
-4) Phir exact message likh jo user ladki ko bheje
-
-Rules:
-- User ko 'bhai' bol
-- Hinglish me likh
-- Short realistic lines
-- No cringe shayari
-- No motivational speech
-- Ladki ban kar reply mat dena
-- Practical advice dena
-- End me COPY PASTE message alag line me clearly likh
-
-User situation:
-{user_text}
+Tone: real friend, protective, supportive.
+Keep replies 6-10 lines.
 """
 
-        payload = {
-            "model": "llama-3.3-70b-versatile",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_text}
-            ],
-            "temperature": 0.7,
-            "max_tokens": 500
-        }
+def ask_groq(user_text):
+    url = "https://api.groq.com/openai/v1/chat/completions"
 
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
-        data = response.json()
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-        if "choices" not in data:
-            print("GROQ RAW RESPONSE:", data)
-            return "Bhai thoda soch raha hu situation... 5 sec baad fir likh 🤔"
+    data = {
+        "model": "llama3-8b-8192",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_text}
+        ],
+        "temperature": 0.7
+    }
 
-        reply = data["choices"][0]["message"]["content"]
-        return reply
+    r = requests.post(url, headers=headers, json=data)
 
-    except Exception as e:
-        print("AI ERROR:", e)
-        return "Bhai thoda network lag gaya dimag pe 😅 5 sec baad fir likh"
+    print("GROQ RAW:", r.text)   # IMPORTANT debug
+
+    try:
+        return r.json()['choices'][0]['message']['content']
+    except:
+        return None
 
 
-# ---------------- WEBHOOK ---------------- #
+def send_message(chat_id, text):
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    requests.post(TELEGRAM_URL, json=payload)
+
 
 @app.route("/", methods=["GET"])
 def home():
-    return "ReplyShastra running"
+    return "Bot Running"
 
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-
     data = request.json
 
     if "message" not in data:
-        return "ok"
+        return jsonify({"ok": True})
 
     chat_id = data["message"]["chat"]["id"]
-    user_text = data["message"].get("text", "")
+    text = data["message"].get("text", "")
 
-    if not user_text:
-        return "ok"
+    if text == "/start":
+        send_message(chat_id, "Bhai aa gaya tu 🤝\nApni problem normal language me likh.")
+        return jsonify({"ok": True})
 
-    # Start command
-    if user_text.lower() == "/start":
-        send_message(chat_id,
-                     "Bhai aa gaya tu 🤝\n\nMain ReplyShastra hu — tera relationship dost.\n\nApni problem normal language me likh:\nExample: 'meri gf gussa hai' ")
-        return "ok"
+    reply = ask_groq(text)
 
-    # typing animation
-    send_typing(chat_id)
+    if reply:
+        send_message(chat_id, reply)
+    else:
+        send_message(chat_id, "Bhai thoda network issue aa gaya... 10 sec baad fir likh 🙏")
 
-    # AI reply
-    reply = ask_ai(user_text)
+    return jsonify({"ok": True})
 
-    send_message(chat_id, reply)
-
-    return "ok"
-
-
-# ---------------- RUN ---------------- #
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
