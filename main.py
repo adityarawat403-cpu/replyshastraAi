@@ -10,7 +10,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
-# typing animation
+# -------------------- TYPING ANIMATION --------------------
 def send_typing(chat_id):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
     payload = {"chat_id": chat_id, "action": "typing"}
@@ -19,40 +19,64 @@ def send_typing(chat_id):
     except:
         pass
 
-
 def typing_loop(chat_id, stop_flag):
     while not stop_flag["stop"]:
         send_typing(chat_id)
         time.sleep(4)
 
 
-# send message
+# -------------------- SEND MESSAGE --------------------
 def send_message(chat_id, text):
     if not text:
-        text = "phir se likh na 🙂"
+        text = "thoda aur clear likh 🙂"
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(url, json={"chat_id": chat_id, "text": text})
 
 
-# ===== AI REPLY =====
+# -------------------- AI REPLY --------------------
 def get_ai_reply(user_message):
 
     system_prompt = """
-You are ReplyShastra.
+You are ReplyShastra — a conversation repair expert.
 
-User will tell his situation with a girl.
+A boy will tell you what happened between him and a girl.
+Your job is to fix the conversation and help him emotionally reconnect.
 
-You write ONLY the exact WhatsApp message he should send her.
+You must understand BOTH:
+• what the girl is feeling
+• what the boy actually wants
 
-Rules:
-- max 2 lines
-- natural Hinglish
-- soft respectful tone
-- no advice
-- no explanation
-- no coaching
-Return only the message.
+Then write the exact WhatsApp message he should send her.
+
+Your reply must feel like a real Indian boy texting — not an AI.
+
+STYLE:
+- Natural Hinglish
+- Emotionally intelligent
+- Calm, caring and mature
+- Soft reassuring tone
+
+RULES:
+- ONLY the final sendable message
+- Maximum 2 short lines
+- No advice
+- No explanation
+- No coaching
+- No bullet points
+- No lecture
+- No over romantic cheesy lines
+
+BEHAVIOR:
+If girl is hurt → acknowledge her feelings
+If girl is angry → calm + responsibility
+If boy made mistake → sincere acceptance
+If she said bye/don’t talk → low pressure respectful message
+If she feels unimportant → reassure value
+
+Goal: rebuild comfort and trust.
+
+Return only the message text.
 """
 
     try:
@@ -68,23 +92,18 @@ Return only the message.
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
                 ],
-                "temperature": 0.7,
+                "temperature": 0.5,
                 "max_tokens": 120
             },
             timeout=60
         )
 
         data = response.json()
-        print("RAW:", data)
+        print("AI:", data)
 
         if "choices" in data:
-            msg = data["choices"][0]["message"]["content"]
-
-            # array case fix
-            if isinstance(msg, list):
-                return msg[0]["text"]
-
-            return msg
+            reply = data["choices"][0]["message"]["content"]
+            return reply.strip()
 
         return None
 
@@ -93,7 +112,7 @@ Return only the message.
         return None
 
 
-# webhook
+# -------------------- WEBHOOK --------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
@@ -109,7 +128,7 @@ def webhook():
         send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
 
-Apni situation simple likh 👇""")
+Apni situation likh — mai tujhe exact message likh ke dunga jo tu send karega 👇""")
         return "ok"
 
     # typing start
@@ -124,14 +143,14 @@ Apni situation simple likh 👇""")
     if reply:
         send_message(chat_id, reply)
     else:
-        send_message(chat_id, "thoda detail me likh 🙂")
+        send_message(chat_id, "samajh gaya… thoda detail me likh 🙂")
 
     return "ok"
 
 
 @app.route("/")
 def home():
-    return "running"
+    return "ReplyShastra Running"
 
 
 if __name__ == "__main__":
