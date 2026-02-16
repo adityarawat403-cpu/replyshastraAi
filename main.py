@@ -7,14 +7,16 @@ app = Flask(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# ===== MEMORY STORE =====
+# ===== MEMORY =====
 user_memory = {}
 
 # ================= SEND MESSAGE =================
 def send_message(chat_id, text):
-    if not text:
-        text = "Thoda clear likh na 🙂"
 
+    if not text:
+        text = "Samajh nahi aya... thoda simple likh 🙂"
+
+    # Telegram 4096 char limit
     parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
     for part in parts:
@@ -29,13 +31,13 @@ def send_message(chat_id, text):
 # ================= AI REPLY =================
 def get_ai_reply(chat_id, user_message):
 
-    # ---- create memory ----
+    # ---- MEMORY STORE ----
     if chat_id not in user_memory:
         user_memory[chat_id] = []
 
     user_memory[chat_id].append({"role": "user", "content": user_message})
 
-    # keep last 8 msgs only
+    # keep only last 8 messages
     user_memory[chat_id] = user_memory[chat_id][-8:]
 
 
@@ -47,21 +49,16 @@ You are ReplyShastra.
 
 A boy will come to you with his chat situation with a girl.
 
-You read his situation and write the exact message he should send her.
+You read his situation and write the exact WhatsApp message he should send her.
 
 Write like a real Indian boy texting on WhatsApp.
 
-Output format:
-• Only the final message to send
-• Maximum 2 short lines
-• Natural Hinglish
-• Soft and respectful tone
-
-Do not explain.
-Do not give advice.
-Do not act like a coach.
-
-Only the sendable message.
+Rules:
+- Only final sendable message
+- Max 2 short lines
+- Natural Hinglish
+- Soft respectful tone
+- No explanation
 """
         }
     ] + user_memory[chat_id]
@@ -85,52 +82,78 @@ Only the sendable message.
         )
 
         data = response.json()
+        print("RAW AI:", data)
 
-        if "choices" in data:
-            reply = data["choices"][0]["message"]["content"]
+        # ===== SMART PARSER =====
+        if "choices" in data and len(data["choices"]) > 0:
 
-            # save AI reply in memory
-            user_memory[chat_id].append({"role": "assistant", "content": reply})
+            msg = data["choices"][0]["message"]
 
-            return reply
+            # normal string
+            if isinstance(msg.get("content"), str) and msg["content"].strip() != "":
+                reply = msg["content"].strip()
+
+            # array response (openrouter bug fix)
+            elif isinstance(msg.get("content"), list):
+                reply = ""
+                for part in msg["content"]:
+                    if isinstance(part, dict) and "text" in part:
+                        reply = part["text"].strip()
+                        break
+            else:
+                reply = ""
+
+            if reply:
+                user_memory[chat_id].append({"role": "assistant", "content": reply})
+                return reply
 
         return "Network slow hai... 10 sec baad bhej 🙂"
 
     except Exception as e:
-        print("ERROR:", e)
-        return "Server busy hai... thodi der baad try kar 🙂"
+        print("AI ERROR:", e)
+        return "Server busy hai... thoda baad try kar 🙂"
 
 
 # ================= WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
 def webhook():
+
     data = request.json
 
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
-        user_message = data["message"].get("text", "")
+    if "message" not in data:
+        return "ok"
 
-        if user_message:
+    message = data["message"]
 
-            if user_message.lower() == "/start":
-                user_memory[chat_id] = []
-                send_message(chat_id,
+    if "text" not in message:
+        return "ok"
+
+    chat_id = message["chat"]["id"]
+    user_message = message["text"]
+
+    # START COMMAND
+    if user_message.lower() == "/start":
+        user_memory[chat_id] = []
+        send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
 
-Apni situation simple likh,
-main tujhe exact message likh ke dunga jo tu send karega.""")
-                return "ok"
+GF ignore, naraz, late reply — sab handle karenge.
 
-            reply = get_ai_reply(chat_id, user_message)
-            send_message(chat_id, reply)
+Apni situation simple likh 👇""")
+        return "ok"
+
+    reply = get_ai_reply(chat_id, user_message)
+    send_message(chat_id, reply)
 
     return "ok"
 
 
+# ================= HEALTH CHECK =================
 @app.route("/")
 def home():
     return "ReplyShastra Running 🚀"
 
 
+# ================= RUN SERVER =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
