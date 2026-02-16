@@ -1,171 +1,140 @@
 from flask import Flask, request
 import requests
 import os
-import json
 import time
-import threading
 
 app = Flask(__name__)
 
+# ================= TOKENS =================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# ================= MEMORY =================
+# ================= USER MEMORY =================
+user_memory = {}
 
-MEMORY_FILE = "memory.json"
-
-def load_memory():
-    if not os.path.exists(MEMORY_FILE):
-        return {}
-    with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_memory(data):
-    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-def remember(chat_id, role, content):
-    memory = load_memory()
-    chat_id = str(chat_id)
-
-    if chat_id not in memory:
-        memory[chat_id] = []
-
-    memory[chat_id].append({
-        "role": role,
-        "content": content
-    })
-
-    # keep last 20 messages only
-    memory[chat_id] = memory[chat_id][-20:]
-    save_memory(memory)
-
-def get_history(chat_id):
-    memory = load_memory()
-    return memory.get(str(chat_id), [])
-
-
-# ================= TELEGRAM =================
-
-def send_typing(chat_id):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
-    payload = {
-        "chat_id": chat_id,
-        "action": "typing"
-    }
-    try:
-        requests.post(url, json=payload, timeout=10)
-    except:
-        pass
-
-
-def send_message(chat_id, text):
-    if not text:
-        text = "Samajh nahi aya… thoda simple likh 🙂"
-
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text
-    }
-    try:
-        requests.post(url, json=payload, timeout=15)
-    except:
-        pass
-
-
-# ================= GROQ AI =================
-
-def ask_groq(messages):
-    url = "https://api.groq.com/openai/v1/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    data = {
-        "model": "llama-3.1-8b-instant",
-        "messages": messages,
-        "temperature": 0.6,
-        "max_tokens": 180
-    }
-
-    response = requests.post(url, headers=headers, json=data, timeout=60)
-    result = response.json()
-
-    return result["choices"][0]["message"]["content"].strip()
-
-
-# ================= MASTER BRAIN PROMPT =================
-
+# ================= MASTER PROMPT =================
 MASTER_PROMPT = """
-You are ReplyShastra.
+You are ReplyShastra — a real male friend helping a boy handle his relationship.
 
-You are a real male friend helping a boy handle his relationship situation.
+First understand the boy’s situation and emotions.
 
-You first understand the situation internally.
-Then you write the exact message he should send to the girl.
+Internally detect:
+• what happened
+• girl's mood
+• seriousness level
+
+Classify the situation into:
+1) Romantic / normal talk
+2) Ignoring / dry replies
+3) Angry / hurt
+4) Breakup risk / distancing
+5) Emotional sadness / vulnerability
+
+Then write the exact message he should send her.
+
+LANGUAGE RULE:
+Reply in the SAME language style the user used.
+
+TONE RULES:
+Romantic → warm & caring
+Ignore → calm & non-needy
+Angry → accept mistake + reassure
+Breakup risk → gentle + respectful + low pressure
+Emotional → comforting + supportive
 
 IMPORTANT:
-You DO NOT give advice.
-You DO NOT explain anything.
-You DO NOT talk to the boy.
+You are not a coach.
+You are not giving advice.
+You are writing HIS message.
 
-You ONLY write the final WhatsApp message for the girl.
+OUTPUT RULES:
+• Only the final WhatsApp message
+• Maximum 2 short lines
+• Natural human texting style
+• No explanation
+• No bullet points
+• No lectures
 
-Rules:
-- Only 1 message
-- Maximum 2 short lines
-- Natural Hinglish
-- Soft, mature tone
-- No lectures
-- No psychology
-- No bullet points
-- No coaching
+Allowed emoji: ❤️ or 🙂 (max 1)
 
-Message must feel real and human.
-Copy-paste ready.
-Allowed emoji: ❤️ or 🙂 (max one)
+Return ONLY the sendable message.
 """
 
+# ================= TELEGRAM TYPING =================
+def send_typing(chat_id, seconds=4):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
+    payload = {"chat_id": chat_id, "action": "typing"}
+    try:
+        for _ in range(seconds):
+            requests.post(url, json=payload, timeout=5)
+            time.sleep(1)
+    except:
+        pass
 
-# ================= AI REPLY =================
+# ================= SEND MESSAGE =================
+def send_message(chat_id, text):
+    if not text:
+        text = "Thoda clear likh na 🙂"
 
+    parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
+
+    for part in parts:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": part}
+        try:
+            requests.post(url, json=payload, timeout=15)
+        except:
+            pass
+
+# ================= GROQ AI =================
 def get_ai_reply(chat_id, user_message):
 
-    # typing animation for ~20 sec
-    def typing_loop():
-        for _ in range(6):
-            send_typing(chat_id)
-            time.sleep(3)
+    if chat_id not in user_memory:
+        user_memory[chat_id] = []
 
-    threading.Thread(target=typing_loop).start()
+    # save user msg
+    user_memory[chat_id].append({"role": "user", "content": user_message})
 
-    history = get_history(chat_id)
+    # keep last 12 messages (memory)
+    user_memory[chat_id] = user_memory[chat_id][-12:]
 
     messages = [
-        {"role": "system", "content": MASTER_PROMPT}
-    ] + history + [
-        {"role": "user", "content": user_message}
-    ]
+        {"role": "system", "content": MASTER_PROMPT},
+        {"role": "system", "content": "If the situation is unclear, still write a suitable message."}
+    ] + user_memory[chat_id]
 
     try:
-        reply = ask_groq(messages)
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama3-8b-8192",
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 140
+            },
+            timeout=60
+        )
 
-        # memory save
-        remember(chat_id, "user", user_message)
-        remember(chat_id, "assistant", reply)
+        data = response.json()
 
-        return reply
+        if "choices" in data:
+            reply = data["choices"][0]["message"]["content"].strip()
+
+            # save AI reply also
+            user_memory[chat_id].append({"role": "assistant", "content": reply})
+            return reply
+
+        return "Net thoda slow hai... fir bhej 🙂"
 
     except Exception as e:
         print("AI ERROR:", e)
-        return "Network slow lag raha… 20 sec baad fir bhej 🙂"
-
+        return "Server busy hai... 1 min baad try kar 🙂"
 
 # ================= WEBHOOK =================
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
@@ -174,14 +143,15 @@ def webhook():
         return "ok"
 
     message = data["message"]
+    chat_id = message["chat"]["id"]
+    user_message = message.get("text", "")
 
-    if "text" not in message:
+    if not user_message:
         return "ok"
 
-    chat_id = message["chat"]["id"]
-    user_message = message["text"]
-
-    if user_message == "/start":
+    # START COMMAND
+    if user_message.lower() == "/start":
+        user_memory[chat_id] = []
         send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
 
@@ -189,16 +159,19 @@ Apni situation simple likh.
 Main tujhe exact message dunga jo tu usse bhejega 👇""")
         return "ok"
 
+    # typing animation
+    send_typing(chat_id, 5)
+
     reply = get_ai_reply(chat_id, user_message)
     send_message(chat_id, reply)
 
     return "ok"
 
-
+# ================= HEALTH CHECK =================
 @app.route("/")
 def home():
-    return "ReplyShastra Running 🚀"
+    return "ReplyShastra Running"
 
-
+# ================= RUN =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
