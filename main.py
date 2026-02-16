@@ -1,6 +1,8 @@
 from flask import Flask, request
 import requests
 import os
+import threading
+import time
 
 app = Flask(__name__)
 
@@ -10,13 +12,32 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 # ===== MEMORY =====
 user_memory = {}
 
+
+# ================= TELEGRAM TYPING =================
+def send_typing(chat_id):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
+    payload = {
+        "chat_id": chat_id,
+        "action": "typing"
+    }
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except:
+        pass
+
+
+# typing loop while AI thinking
+def typing_loop(chat_id, stop_flag):
+    while not stop_flag["stop"]:
+        send_typing(chat_id)
+        time.sleep(4)
+
+
 # ================= SEND MESSAGE =================
 def send_message(chat_id, text):
-
     if not text:
-        text = "Samajh nahi aya... thoda simple likh 🙂"
+        text = "Samajh nahi aya, thoda aur simple likh 🙂"
 
-    # Telegram 4096 char limit
     parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
 
     for part in parts:
@@ -31,15 +52,11 @@ def send_message(chat_id, text):
 # ================= AI REPLY =================
 def get_ai_reply(chat_id, user_message):
 
-    # ---- MEMORY STORE ----
     if chat_id not in user_memory:
         user_memory[chat_id] = []
 
     user_memory[chat_id].append({"role": "user", "content": user_message})
-
-    # keep only last 8 messages
     user_memory[chat_id] = user_memory[chat_id][-8:]
-
 
     messages = [
         {
@@ -47,22 +64,21 @@ def get_ai_reply(chat_id, user_message):
             "content": """
 You are ReplyShastra.
 
-A boy will come to you with his chat situation with a girl.
+A boy will tell you his chat situation with a girl.
 
-You read his situation and write the exact WhatsApp message he should send her.
-
-Write like a real Indian boy texting on WhatsApp.
+You must write the exact WhatsApp message he should send her.
 
 Rules:
-- Only final sendable message
-- Max 2 short lines
+- Only the final sendable message
+- Maximum 2 lines
 - Natural Hinglish
 - Soft respectful tone
 - No explanation
+- No advice
+- No coaching
 """
         }
     ] + user_memory[chat_id]
-
 
     try:
         response = requests.post(
@@ -75,64 +91,48 @@ Rules:
             json={
                 "model": "openrouter/auto",
                 "messages": messages,
-                "temperature": 0.8,
-                "max_tokens": 120
+                "temperature": 0.7,
+                "max_tokens": 80,
+                "provider": {
+                    "order": ["together","deepinfra","fireworks"],
+                    "allow_fallbacks": True
+                }
             },
             timeout=90
         )
 
         data = response.json()
-        print("RAW AI:", data)
 
-        # ===== SMART PARSER =====
-        if "choices" in data and len(data["choices"]) > 0:
+        if "choices" in data:
+            reply = data["choices"][0]["message"]["content"]
+            user_memory[chat_id].append({"role": "assistant", "content": reply})
+            return reply
 
-            msg = data["choices"][0]["message"]
-
-            # normal string
-            if isinstance(msg.get("content"), str) and msg["content"].strip() != "":
-                reply = msg["content"].strip()
-
-            # array response (openrouter bug fix)
-            elif isinstance(msg.get("content"), list):
-                reply = ""
-                for part in msg["content"]:
-                    if isinstance(part, dict) and "text" in part:
-                        reply = part["text"].strip()
-                        break
-            else:
-                reply = ""
-
-            if reply:
-                user_memory[chat_id].append({"role": "assistant", "content": reply})
-                return reply
-
-        return "Network slow hai... 10 sec baad bhej 🙂"
+        return "Thoda slow chal raha... fir se bhej 🙂"
 
     except Exception as e:
         print("AI ERROR:", e)
-        return "Server busy hai... thoda baad try kar 🙂"
+        return "Server busy hai, 1 min baad bhej 🙂"
 
 
 # ================= WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
 def webhook():
-
     data = request.json
 
     if "message" not in data:
         return "ok"
 
     message = data["message"]
+    chat_id = message["chat"]["id"]
+    user_message = message.get("text","")
 
-    if "text" not in message:
+    # ignore small msgs
+    small_msgs = ["ok","okk","k","hmm","hmmm","hnn","hn","h"]
+    if user_message.lower().strip() in small_msgs:
         return "ok"
 
-    chat_id = message["chat"]["id"]
-    user_message = message["text"]
-
-    # START COMMAND
-    if user_message.lower() == "/start":
+    if user_message == "/start":
         user_memory[chat_id] = []
         send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
@@ -142,18 +142,26 @@ GF ignore, naraz, late reply — sab handle karenge.
 Apni situation simple likh 👇""")
         return "ok"
 
+    # ---- START TYPING THREAD ----
+    stop_flag = {"stop": False}
+    t = threading.Thread(target=typing_loop, args=(chat_id, stop_flag))
+    t.start()
+
+    # ---- AI CALL ----
     reply = get_ai_reply(chat_id, user_message)
+
+    # stop typing
+    stop_flag["stop"] = True
+
     send_message(chat_id, reply)
 
     return "ok"
 
 
-# ================= HEALTH CHECK =================
 @app.route("/")
 def home():
-    return "ReplyShastra Running 🚀"
+    return "ReplyShastra Running"
 
 
-# ================= RUN SERVER =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
