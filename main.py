@@ -1,25 +1,13 @@
-import os
-import requests
 from flask import Flask, request, jsonify
+import requests
+import os
 
 app = Flask(__name__)
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-
-# ---------- Telegram Send ----------
-def send_message(chat_id, text):
-    try:
-        requests.post(TELEGRAM_URL, json={
-            "chat_id": chat_id,
-            "text": text
-        })
-    except Exception as e:
-        print("Telegram Send Error:", e)
-
-# ---------- AI Reply ----------
+# ---------------- AI REPLY ----------------
 def get_ai_reply(user_message):
 
     prompt = f"""
@@ -59,40 +47,47 @@ User: {user_message}
         )
 
         res_json = response.json()
-        print("GROQ RESPONSE:", res_json)
-
         return res_json["choices"][0]["message"]["content"]
 
     except Exception as e:
         print("AI ERROR:", e)
-        return "Bhai AI thoda soch raha hai 🤯 20 sec baad fir likh."
+        return "Bhai thoda network/AI issue aa gaya 😅 20 sec baad fir likh."
 
-# ---------- Webhook ----------
+# ---------------- TELEGRAM SEND ----------------
+def send_telegram(chat_id, text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    requests.post(url, json=payload)
+
+# ---------------- WEBHOOK ----------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
+
     data = request.get_json()
 
     if "message" not in data:
-        return jsonify({"status": "no message"})
+        return jsonify({"ok": True})
 
     chat_id = data["message"]["chat"]["id"]
-    text = data["message"].get("text", "")
+    user_text = data["message"].get("text", "")
 
-    # start command
-    if text == "/start":
-        send_message(chat_id,
-        "Bhai aa gaya tu 🤝\n"
-        "Apni problem likh — main help karta hu.")
-        return "ok"
+    print("USER:", user_text)
 
-    # typing message
-    send_message(chat_id, "Soch raha hu bhai... 🤔")
+    # /start command
+    if user_text == "/start":
+        send_telegram(chat_id, "Bhai main hu 🤝\nApni problem bata, milke set karte hain.")
+        return jsonify({"ok": True})
 
-    reply = get_ai_reply(text)
+    # AI reply
+    reply = get_ai_reply(user_text)
 
-    send_message(chat_id, reply)
+    # SEND BACK TO TELEGRAM
+    send_telegram(chat_id, reply)
 
-    return "ok"
+    return jsonify({"ok": True})
 
 @app.route("/")
 def home():
