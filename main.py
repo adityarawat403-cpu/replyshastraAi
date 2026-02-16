@@ -1,134 +1,108 @@
 import os
-import time
 import requests
+import json
+import time
 from flask import Flask, request
-
-# ====== CONFIG ======
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 app = Flask(__name__)
 
-# simple memory (per user)
-user_memory = {}
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-# ====== SYSTEM PROMPT ======
+TELEGRAM_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
 SYSTEM_PROMPT = """
 You are ReplyShastra.
 
-You are NOT the girlfriend.
-You are the boy’s close male friend helping him reply.
+You are NOT a girlfriend.
+You are NOT the user.
+
+You are his warning-free honest male best friend.
 
 Your job:
-Understand his relationship problem and write the exact WhatsApp message he should send to his girlfriend.
+- First understand the emotional situation
+- Analyze what the girl actually felt
+- Then suggest what the boy should say
+- Then give 1 ready-to-send message.
 
-Rules:
-- Output ONLY the message to send
-- Max 2 short lines
-- Natural Hinglish (Indian texting style)
-- Soft, calm, emotionally mature tone
-- No lecture
-- No explanation
-- No bullet points
-- No coaching
-- No asking user questions
+Style:
+Talk like a real Indian friend (Hinglish).
+Short, real, emotionally intelligent.
+No cringe. No over-romantic lines.
+No long paragraphs.
 
-Never act like therapist.
-Never talk to user.
-Never say "bro" in the final message.
+Always structure reply:
 
-Only generate the message he will copy-paste to her.
+1) Situation samjha:
+2) Ladki kya feel kar rahi:
+3) Tu kya kare:
+4) Ye message bhej:
 """
 
-# ====== TELEGRAM FUNCTIONS ======
-def send_message(chat_id, text):
-    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
-        "chat_id": chat_id,
-        "text": text
-    })
-
-def send_typing(chat_id):
-    requests.post(f"{TELEGRAM_URL}/sendChatAction", json={
-        "chat_id": chat_id,
-        "action": "typing"
-    })
-
-# ====== GROQ CALL ======
-def generate_reply(chat_id, user_text):
-
-    if chat_id not in user_memory:
-        user_memory[chat_id] = []
-
-    user_memory[chat_id].append({"role": "user", "content": user_text})
-
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages += user_memory[chat_id][-8:]  # last few messages only
+def ask_groq(user_text):
+    url = "https://api.groq.com/openai/v1/chat/completions"
 
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
 
-    payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": messages,
+    data = {
+        "model": "llama3-8b-8192",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_text}
+        ],
         "temperature": 0.7,
-        "max_tokens": 120
+        "max_tokens": 500
     }
 
     try:
-        response = requests.post(GROQ_URL, headers=headers, json=payload, timeout=60)
-        data = response.json()
-
-        reply = data["choices"][0]["message"]["content"].strip()
-
-        user_memory[chat_id].append({"role": "assistant", "content": reply})
-
-        return reply
-
+        r = requests.post(url, headers=headers, json=data, timeout=25)
+        res = r.json()
+        return res["choices"][0]["message"]["content"]
     except Exception as e:
         print("GROQ ERROR:", e)
-        return "Sorry thoda late ho gaya, ek baar fir bhejna 🙂"
+        return "Bhai thoda network issue aaya… 1 min baad fir likh 🙏"
 
+def send_message(chat_id, text):
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    requests.post(TELEGRAM_URL, json=payload)
 
-# ====== TELEGRAM WEBHOOK ======
+@app.route("/", methods=["GET"])
+def home():
+    return "ReplyShastra running"
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json()
+    data = request.json
 
     if "message" not in data:
         return "ok"
 
     chat_id = data["message"]["chat"]["id"]
-    text = data["message"].get("text", "")
 
-    # /start command
-    if text == "/start":
-        send_message(chat_id,
-            "Hi! Main ReplyShastra hoon 🙂\n\n"
-            "GF ignore, naraz, breakup, late reply — sab handle karenge.\n\n"
-            "Apni situation simple likh 👇"
-        )
+    if "text" not in data["message"]:
         return "ok"
 
-    # typing animation
-    send_typing(chat_id)
-    time.sleep(5)
+    user_text = data["message"]["text"]
 
-    reply = generate_reply(chat_id, text)
+    if user_text == "/start":
+        send_message(chat_id,
+        "Bhai aa gaya main 🤝\n\nTension mat le.\nJo bhi hua simple bata — main samjha ke sahi message likhwa dunga.")
+        return "ok"
+
+    # typing delay realism
+    time.sleep(6)
+
+    reply = ask_groq(user_text)
 
     send_message(chat_id, reply)
 
     return "ok"
-
-
-@app.route("/", methods=["GET"])
-def home():
-    return "ReplyShastra Running"
-    
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
