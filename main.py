@@ -9,54 +9,52 @@ app = Flask(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# ===== MEMORY STORE =====
+# ===== USER MEMORY =====
 user_memory = {}
 
 
 # ================= TELEGRAM SEND =================
 def send_message(chat_id, text):
-
     if not text:
-        text = "Network issue... ek baar fir bhej 🙂"
+        text = "Thoda clear likh 🙂"
 
-    parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
 
-    for part in parts:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": part
-        }
-        try:
-            requests.post(url, json=payload, timeout=20)
-        except:
-            pass
+    try:
+        requests.post(url, json=payload, timeout=20)
+    except:
+        pass
 
 
 # ================= TYPING ANIMATION =================
-def typing(chat_id, stop_event):
+def typing_indicator(chat_id, stop_event):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
+
     while not stop_event.is_set():
         try:
-            requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction",
-                json={"chat_id": chat_id, "action": "typing"},
-                timeout=10
-            )
+            requests.post(url, json={
+                "chat_id": chat_id,
+                "action": "typing"
+            }, timeout=10)
         except:
             pass
+
         time.sleep(4)
 
 
 # ================= AI REPLY =================
 def get_ai_reply(chat_id, user_message):
 
-    # ---- MEMORY ----
     if chat_id not in user_memory:
         user_memory[chat_id] = []
 
+    # save user msg
     user_memory[chat_id].append({"role": "user", "content": user_message})
-    user_memory[chat_id] = user_memory[chat_id][-12:]
-
+    user_memory[chat_id] = user_memory[chat_id][-12:]  # last 12 msgs
 
     messages = [
         {
@@ -64,78 +62,60 @@ def get_ai_reply(chat_id, user_message):
             "content": """
 You are ReplyShastra.
 
-A boy tells you his girlfriend chat situation.
+A boy will tell you his girlfriend chat situation.
 
-Understand the situation and help him naturally like a real friend.
-
-If he asks:
-msg de / kya bheju / reply kya du
-→ Write ONLY the exact WhatsApp message.
+You must write the EXACT WhatsApp message he should send her.
 
 Rules:
-• Max 2 lines
-• Natural Hinglish
-• Soft emotional tone
-• No lecture
-• No explanation
+- Only the sendable message
+- Maximum 2 short lines
+- Natural Hinglish
+- Soft, respectful, emotionally mature tone
+- No explanation
+- No advice
+- No bullet points
+- No coaching
 
-If he asks kya karu:
-→ Give short friendly help (max 3 lines)
+Never write poetry.
+Write like a real 22 year old Indian boy texting.
+
+Allowed emoji: ❤️ or 🙂
+Maximum: one emoji.
 """
         }
     ] + user_memory[chat_id]
-
-
-    # typing animation
-    stop_event = threading.Event()
-    typing_thread = threading.Thread(target=typing, args=(chat_id, stop_event))
-    typing_thread.start()
 
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json"
+                "HTTP-Referer": "https://telegram.org",
+                "X-Title": "ReplyShastra"
             },
             json={
-                "model": "mistralai/mistral-7b-instruct",
+                "model": "openai/gpt-4o-mini",
                 "messages": messages,
-                "temperature": 0.9,
-                "max_tokens": 160
+                "temperature": 0.8,
+                "max_tokens": 120
             },
-            timeout=65
+            timeout=60
         )
-
-        stop_event.set()
 
         data = response.json()
 
-        # SAFE PARSE
-        reply = None
+        if "choices" in data:
+            reply = data["choices"][0]["message"]["content"].strip()
 
-        if "choices" in data and len(data["choices"]) > 0:
+            # save AI reply
+            user_memory[chat_id].append({"role": "assistant", "content": reply})
+            return reply
 
-            choice = data["choices"][0]
-
-            if "message" in choice and "content" in choice["message"]:
-                reply = choice["message"]["content"]
-
-            elif "text" in choice:
-                reply = choice["text"]
-
-        if not reply or len(reply.strip()) < 3:
-            return "Net slow lag raha... ek baar fir bhej 🙂"
-
-        # SAVE MEMORY
-        user_memory[chat_id].append({"role": "assistant", "content": reply})
-
-        return reply.strip()
+        return "Net slow hai… ek baar fir bhej 🙂"
 
     except Exception as e:
-        stop_event.set()
         print("AI ERROR:", e)
-        return "Server busy hai... 1 min baad try kar 🙂"
+        return "Server busy hai… 20 sec baad try kar 🙂"
 
 
 # ================= WEBHOOK =================
@@ -144,25 +124,37 @@ def webhook():
     data = request.json
 
     if "message" in data:
-
         chat_id = data["message"]["chat"]["id"]
-        user_message = data["message"].get("text", "")
+        user_message = data["message"].get("text", "").strip()
 
-        if user_message:
+        if not user_message:
+            return "ok"
 
-            if user_message.lower() == "/start":
-                user_memory[chat_id] = []
-
-                send_message(chat_id,
+        # /start
+        if user_message.lower() == "/start":
+            user_memory[chat_id] = []
+            send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
 
 GF ignore, naraz, breakup, late reply — sab handle karenge.
 
 Apni situation simple likh 👇""")
-                return "ok"
+            return "ok"
 
-            reply = get_ai_reply(chat_id, user_message)
-            send_message(chat_id, reply)
+        # typing thread start
+        stop_event = threading.Event()
+        t = threading.Thread(target=typing_indicator, args=(chat_id, stop_event))
+        t.start()
+
+        # AI reply
+        reply = get_ai_reply(chat_id, user_message)
+
+        # stop typing
+        stop_event.set()
+        t.join()
+
+        # send reply
+        send_message(chat_id, reply)
 
     return "ok"
 
