@@ -32,7 +32,7 @@ def ask_groq(user_text):
     }
 
     data = {
-        "model": "llama3-8b-8192",
+        llama-3.1-8b-instant
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_text}
