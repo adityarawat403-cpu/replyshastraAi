@@ -1,171 +1,151 @@
 from flask import Flask, request
 import requests
 import os
+import time
 
 app = Flask(__name__)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# ================= USER MEMORY =================
+# ===== MEMORY STORE =====
 user_memory = {}
 
 # ================= TELEGRAM SEND =================
 def send_message(chat_id, text):
-    if not text:
-        text = "Hmm... dubara bhej 🙂"
-
-    parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
-
-    for part in parts:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": part
-        }
-        try:
-            requests.post(url, json=payload, timeout=15)
-        except:
-            pass
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    try:
+        requests.post(url, json=payload, timeout=15)
+    except:
+        pass
 
 
-# ================= AI REPLY =================
+# ================= TYPING ANIMATION =================
+def show_typing(chat_id):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
+    payload = {
+        "chat_id": chat_id,
+        "action": "typing"
+    }
+    try:
+        for _ in range(5):   # ~5 seconds typing
+            requests.post(url, json=payload, timeout=10)
+            time.sleep(1)
+    except:
+        pass
+
+
+# ================= AI REPLY (GROQ) =================
 def get_ai_reply(chat_id, user_message):
 
-    # ---- create memory ----
     if chat_id not in user_memory:
         user_memory[chat_id] = []
 
+    # store user msg
     user_memory[chat_id].append({"role": "user", "content": user_message})
-    user_memory[chat_id] = user_memory[chat_id][-10:]
 
+    # keep last context
+    user_memory[chat_id] = user_memory[chat_id][-12:]
 
     system_prompt = """
 You are ReplyShastra.
 
-A boy will share what his girlfriend said or what happened between them.
+A boy will tell you what happened with his girlfriend.
 
-First understand her emotion:
-angry, hurt, disappointed, missing him, testing him, or caring.
+First understand the situation and her emotions.
 
 Then write the exact WhatsApp message he should send her.
 
-Your job is NOT advice.
-Your job is NOT coaching.
-
-Your job is to make the girl feel:
-understood, respected, and emotionally heard.
-
 Rules:
-- Only the final message
+- Only the message
 - Maximum 2 short lines
-- Natural Hinglish
-- Calm and genuine tone
-- No explanation
-- No bullet points
-- No instructions to the user
+- Natural Hinglish (real Indian texting)
+- Soft, calm, emotionally mature tone
 
-Very important:
-Do not change topic.
-Reply directly to what she felt.
-
-If she is hurt → acknowledge and take responsibility.
-If she is angry → calm and soft.
-If she is caring → appreciative.
-If she is ignoring → light and non-needy.
-
-Write like a real Indian boyfriend texting.
+Never:
+- give advice
+- explain anything
+- ask the user questions
+- act like a coach
 
 Allowed emoji: ❤️ or 🙂
-Max: one emoji.
+Maximum one emoji.
+
+Output must look exactly like a WhatsApp message.
 """
 
     messages = [{"role": "system", "content": system_prompt}] + user_memory[chat_id]
 
     try:
         response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            "https://api.groq.com/openai/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Authorization": f"Bearer {GROQ_API_KEY}",
                 "Content-Type": "application/json"
             },
             json={
-                "model": "openrouter/auto",
+                "model": "llama3-70b-8192",
                 "messages": messages,
-                "temperature": 0.8,
-                "max_tokens": 140
+                "temperature": 0.9,
+                "max_tokens": 120
             },
-            timeout=90
+            timeout=60
         )
 
         data = response.json()
 
-        # -------- SMART PARSER (important fix) --------
-        if "choices" in data and len(data["choices"]) > 0:
-            msg = data["choices"][0]["message"]
+        reply = data["choices"][0]["message"]["content"].strip()
 
-            if isinstance(msg.get("content"), str):
-                reply = msg["content"].strip()
+        # save AI reply
+        user_memory[chat_id].append({"role": "assistant", "content": reply})
 
-            elif isinstance(msg.get("content"), list):
-                reply = ""
-                for part in msg["content"]:
-                    if "text" in part:
-                        reply += part["text"]
-
-            else:
-                reply = "Ek sec… fir bhej 🙂"
-
-            user_memory[chat_id].append({"role": "assistant", "content": reply})
-            return reply
-
-        return "Network slow hai… 20 sec baad bhej 🙂"
+        return reply
 
     except Exception as e:
-        print("AI ERROR:", e)
-        return "Server busy hai… thoda baad try kar 🙂"
+        print("GROQ ERROR:", e)
+        return "Ek sec… fir bhej 🙂"
 
 
 # ================= WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    try:
-        data = request.json
+    data = request.json
 
-        if "message" not in data:
-            return "ok"
-
+    if "message" in data:
         chat_id = data["message"]["chat"]["id"]
         user_message = data["message"].get("text", "")
 
-        if not user_message:
-            return "ok"
+        if user_message:
 
-        # ---- start command ----
-        if user_message.lower() == "/start":
-            user_memory[chat_id] = []
-            send_message(chat_id,
+            # START COMMAND
+            if user_message.lower() == "/start":
+                user_memory[chat_id] = []
+                send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
 
-GF ignore, naraz, late reply — sab handle karenge.
+GF ignore, naraz, breakup, late reply — sab handle karenge.
 
 Apni situation simple likh 👇""")
-            return "ok"
+                return "ok"
 
-        reply = get_ai_reply(chat_id, user_message)
-        send_message(chat_id, reply)
+            # typing animation
+            show_typing(chat_id)
 
-        return "ok"
+            # AI reply
+            reply = get_ai_reply(chat_id, user_message)
 
-    except Exception as e:
-        print("WEBHOOK ERROR:", e)
-        return "ok"
+            send_message(chat_id, reply)
+
+    return "ok"
 
 
-# ================= HEALTH CHECK =================
 @app.route("/")
 def home():
-    return "ReplyShastra Running"
+    return "ReplyShastra Groq Running 🚀"
 
 
 if __name__ == "__main__":
