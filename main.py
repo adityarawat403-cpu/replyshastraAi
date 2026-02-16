@@ -5,75 +5,85 @@ import time
 
 app = Flask(__name__)
 
+# ===== TOKENS =====
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# -------- MEMORY --------
+# ===== MEMORY STORE =====
 user_memory = {}
 
-# -------- TELEGRAM SEND --------
+
+# ================= TELEGRAM SEND =================
 def send_message(chat_id, text):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
-    requests.post(url, json=payload)
+    if not text:
+        text = "Samajh nahi aya, dubara likh 🙂"
+
+    parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
+
+    for part in parts:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": part}
+        try:
+            requests.post(url, json=payload, timeout=15)
+        except:
+            pass
 
 
-# -------- TYPING ANIMATION --------
+# ================= TYPING ANIMATION =================
 def send_typing(chat_id):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
-    payload = {"chat_id": chat_id, "action": "typing"}
+    payload = {
+        "chat_id": chat_id,
+        "action": "typing"
+    }
     try:
-        requests.post(url, json=payload, timeout=5)
+        requests.post(url, json=payload, timeout=10)
     except:
         pass
 
 
-# -------- AI REPLY --------
+# ================= AI REPLY =================
 def get_ai_reply(chat_id, user_message):
 
-    # memory create
     if chat_id not in user_memory:
         user_memory[chat_id] = []
 
     # save user message
     user_memory[chat_id].append({"role": "user", "content": user_message})
 
-    # keep last 12 msgs
+    # keep last messages
     user_memory[chat_id] = user_memory[chat_id][-12:]
 
     system_prompt = """
 You are ReplyShastra.
 
-A boy will tell you his situation with his girlfriend.
+A boy will tell you what happened between him and his girlfriend.
 
 Your job:
-Read his message and write the exact WhatsApp message he should send to her.
+Write the exact WhatsApp message he should send her.
+
+Style:
+- Natural Hinglish
+- Soft and mature
+- Emotionally understanding
 
 Rules:
-- Only write the message he should send
-- Max 2 short lines
-- Natural Hinglish
-- Soft calm tone
-- Emotionally understanding
-- No explanation
+- Only the final message
+- Maximum 2 short lines
 - No advice
-- No coaching
+- No explanation
 - No bullet points
-- No asking questions to the user
-
-Write like a real Indian boyfriend texting.
-
-Output only the final sendable message.
+- No coaching
 """
 
     messages = [{"role": "system", "content": system_prompt}] + user_memory[chat_id]
 
     try:
 
-        # show typing while AI thinks
-        for _ in range(4):
+        # typing animation (approx 6 sec)
+        for _ in range(6):
             send_typing(chat_id)
-            time.sleep(1.2)
+            time.sleep(1)
 
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -84,29 +94,32 @@ Output only the final sendable message.
             json={
                 "model": "llama-3.3-70b-versatile",
                 "messages": messages,
-                "temperature": 0.7
+                "temperature": 0.85
             },
-            timeout=60
+            timeout=45
         )
+
+        print("STATUS:", response.status_code)
+        print("RESPONSE:", response.text)
 
         data = response.json()
 
-        if "choices" in data:
-            reply = data["choices"][0]["message"]["content"].strip()
+        if "choices" not in data:
+            return "AI thoda busy hai, 20 sec baad bhej 🙂"
 
-            # save ai memory
-            user_memory[chat_id].append({"role": "assistant", "content": reply})
+        reply = data["choices"][0]["message"]["content"].strip()
 
-            return reply
+        # save AI reply
+        user_memory[chat_id].append({"role": "assistant", "content": reply})
 
-        return "Thoda network issue aa gaya, 10 sec baad bhej 🙂"
+        return reply
 
     except Exception as e:
-        print("AI ERROR:", e)
-        return "Server thoda busy hai, 20 sec baad bhej 🙂"
+        print("ERROR:", e)
+        return "Server busy hai, thoda baad try 🙂"
 
 
-# -------- WEBHOOK --------
+# ================= WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
@@ -117,7 +130,7 @@ def webhook():
 
         if user_message:
 
-            # START COMMAND
+            # start command
             if user_message.lower() == "/start":
                 user_memory[chat_id] = []
                 send_message(chat_id,
@@ -134,6 +147,7 @@ Apni situation simple likh 👇""")
     return "ok"
 
 
+# ================= HOME =================
 @app.route("/")
 def home():
     return "ReplyShastra Running 🚀"
