@@ -9,75 +9,91 @@ app = Flask(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+# ========= USER MEMORY =========
+user_memory = {}
 
-# -------------------- TYPING ANIMATION --------------------
-def send_typing(chat_id):
+# ========= TELEGRAM FUNCTIONS =========
+def send_typing(chat_id, stop_event):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
     payload = {"chat_id": chat_id, "action": "typing"}
-    try:
-        requests.post(url, json=payload, timeout=10)
-    except:
-        pass
 
-def typing_loop(chat_id, stop_flag):
-    while not stop_flag["stop"]:
-        send_typing(chat_id)
+    while not stop_event.is_set():
+        try:
+            requests.post(url, json=payload, timeout=10)
+        except:
+            pass
         time.sleep(4)
 
 
-# -------------------- SEND MESSAGE --------------------
 def send_message(chat_id, text):
     if not text:
-        text = "thoda aur clear likh 🙂"
+        text = "Samjha hu bhai... thoda aur detail me bata 🙂"
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    requests.post(url, json={"chat_id": chat_id, "text": text})
+    parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
+
+    for part in parts:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": part}
+        try:
+            requests.post(url, json=payload, timeout=15)
+        except:
+            pass
 
 
-# -------------------- AI REPLY --------------------
-def get_ai_reply(user_message):
+# ========= AI BRAIN =========
+def get_ai_reply(chat_id, user_message):
 
+    if chat_id not in user_memory:
+        user_memory[chat_id] = []
+
+    # store message
+    user_memory[chat_id].append({"role": "user", "content": user_message})
+    user_memory[chat_id] = user_memory[chat_id][-12:]  # last 12 msgs
+
+    # ----------- SYSTEM BRAIN PROMPT -----------
     system_prompt = """
-You are ReplyShastra — a conversation repair expert.
+You are ReplyShastra.
 
-A boy will tell you what happened between him and a girl.
-Your job is to fix the conversation and help him emotionally reconnect.
+You are not an assistant.
+You are a calm, mature Indian male friend helping a boy handle his girlfriend situation.
 
-You must understand BOTH:
-• what the girl is feeling
-• what the boy actually wants
+Your job:
+First understand the situation.
+Then either guide him OR write the exact message he should send.
 
-Then write the exact WhatsApp message he should send her.
+Behavior rules:
+• Talk like a real human, not a coach
+• Short responses
+• Hinglish natural tone
+• No lectures
+• No psychology explanation
+• No long paragraphs
 
-Your reply must feel like a real Indian boy texting — not an AI.
+If user asks "kya karu":
+→ briefly guide him (3-4 lines max)
 
-STYLE:
-- Natural Hinglish
-- Emotionally intelligent
-- Calm, caring and mature
-- Soft reassuring tone
+If user asks "msg de", "kya bheju", "reply kya du":
+→ write ONLY the exact WhatsApp message
+→ Maximum 2 lines
+→ Soft respectful tone
 
-RULES:
-- ONLY the final sendable message
-- Maximum 2 short lines
-- No advice
-- No explanation
-- No coaching
-- No bullet points
-- No lecture
-- No over romantic cheesy lines
+If girl is angry:
+→ apology type message
 
-BEHAVIOR:
-If girl is hurt → acknowledge her feelings
-If girl is angry → calm + responsibility
-If boy made mistake → sincere acceptance
-If she said bye/don’t talk → low pressure respectful message
-If she feels unimportant → reassure value
+If girl is ignoring:
+→ calm non-needy message
 
-Goal: rebuild comfort and trust.
+If girl said bye / don't text:
+→ respectful space message
 
-Return only the message text.
+Never insult the girl.
+Never abuse.
+Never act like a guru.
+
+Be emotionally intelligent and practical.
 """
+
+    messages = [{"role": "system", "content": system_prompt}] + user_memory[chat_id]
 
     try:
         response = requests.post(
@@ -87,70 +103,67 @@ Return only the message text.
                 "Content-Type": "application/json"
             },
             json={
-                "model": "deepseek/deepseek-chat",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                "temperature": 0.5,
-                "max_tokens": 120
+                "model": "openrouter/auto",
+                "messages": messages,
+                "temperature": 0.7
             },
-            timeout=60
+            timeout=120
         )
 
         data = response.json()
-        print("AI:", data)
 
         if "choices" in data:
             reply = data["choices"][0]["message"]["content"]
-            return reply.strip()
+            user_memory[chat_id].append({"role": "assistant", "content": reply})
+            return reply
 
-        return None
+        return "Network slow hai... 10 sec baad fir bhej 🙂"
 
     except Exception as e:
         print("AI ERROR:", e)
-        return None
+        return "Server busy hai... thoda baad try kar 🙂"
 
 
-# -------------------- WEBHOOK --------------------
+# ========= WEBHOOK =========
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
 
-    if "message" not in data:
-        return "ok"
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+        user_message = data["message"].get("text", "")
 
-    message = data["message"]
-    chat_id = message["chat"]["id"]
-    user_message = message.get("text","")
+        if user_message:
 
-    if user_message == "/start":
-        send_message(chat_id,
+            # reset memory
+            if user_message.lower() == "/start":
+                user_memory[chat_id] = []
+                send_message(chat_id,
 """Hi! Main ReplyShastra hoon 🙂
 
-Apni situation likh — mai tujhe exact message likh ke dunga jo tu send karega 👇""")
-        return "ok"
+GF ignore, naraz, breakup, late reply — sab handle karenge.
 
-    # typing start
-    stop_flag = {"stop": False}
-    t = threading.Thread(target=typing_loop, args=(chat_id, stop_flag))
-    t.start()
+Apni situation simple likh 👇""")
+                return "ok"
 
-    reply = get_ai_reply(user_message)
+            # start typing animation
+            stop_event = threading.Event()
+            typing_thread = threading.Thread(target=send_typing, args=(chat_id, stop_event))
+            typing_thread.start()
 
-    stop_flag["stop"] = True
+            reply = get_ai_reply(chat_id, user_message)
 
-    if reply:
-        send_message(chat_id, reply)
-    else:
-        send_message(chat_id, "samajh gaya… thoda detail me likh 🙂")
+            stop_event.set()
+            typing_thread.join()
+
+            send_message(chat_id, reply)
 
     return "ok"
 
 
 @app.route("/")
 def home():
-    return "ReplyShastra Running"
+    return "ReplyShastra Running 🚀"
 
 
 if __name__ == "__main__":
