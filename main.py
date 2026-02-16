@@ -1,151 +1,142 @@
-from flask import Flask, request
-import requests
 import os
+import json
 import time
+import threading
+import requests
+from flask import Flask, request
 
 app = Flask(__name__)
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-# ---------------- SEND TYPING ----------------
-def send_typing(chat_id, seconds=18):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
-    payload = {"chat_id": chat_id, "action": "typing"}
+TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+
+# -------- Memory (per user) ----------
+user_memory = {}
+
+# ---------- typing animation ----------
+def send_typing(chat_id, seconds=12):
     end = time.time() + seconds
     while time.time() < end:
         try:
-            requests.post(url, json=payload, timeout=5)
+            requests.post(f"{TELEGRAM_API}/sendChatAction",
+                          json={"chat_id": chat_id, "action": "typing"})
+            time.sleep(4)
         except:
-            pass
-        time.sleep(4)
+            break
 
-
-# ---------------- SEND MESSAGE ----------------
+# ---------- send message ----------
 def send_message(chat_id, text):
-    if not text:
-        text = "Samajh nahi aya bhai, thoda detail me bata 🙂"
+    requests.post(f"{TELEGRAM_API}/sendMessage", json={
+        "chat_id": chat_id,
+        "text": text
+    })
 
-    parts = [text[i:i+3500] for i in range(0, len(text), 3500)]
+# ---------- AI brain ----------
+def get_ai_reply(user_id, user_message):
 
-    for part in parts:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": chat_id, "text": part}
-        try:
-            requests.post(url, json=payload, timeout=20)
-        except:
-            pass
+    # store conversation memory
+    if user_id not in user_memory:
+        user_memory[user_id] = []
 
+    user_memory[user_id].append({"role": "user", "content": user_message})
 
-# ---------------- AI REPLY ----------------
-
-
-
-# ---------------- WEBHOOK ----------------
-@adef get_ai_reply(user_message):
-
-    if len(user_message.strip()) < 4:
-        return "Thoda detail me bata bhai, kya hua?"
+    # keep last 8 messages only
+    user_memory[user_id] = user_memory[user_id][-8:]
 
     system_prompt = """
 You are ReplyShastra.
 
-You are a male best friend helping a boy fix his relationship.
+You are NOT girlfriend.
+You are NOT chatbot assistant.
 
-He is not chatting with his girlfriend.
-He is telling YOU the situation.
+You are a real male best friend helping a boy save his relationship.
 
-Your job:
-Understand the emotional situation first.
+Boy comes to you after fight, ignore, breakup fear, anger, guilt.
+
+FIRST understand emotional problem.
 Then generate the exact WhatsApp message he should send her.
 
-Rules:
-- Only message to send
-- Max 2 lines
-- Hinglish natural texting
-- Caring but self-respecting
-- No advice
+Important:
+- You talk like a supportive bro
+- Short natural Hinglish
+- 1 or 2 lines only
+- Caring but not desperate
+- No lectures
 - No explanation
-- No talking to boy
-- No acting like girl
+- Only message to send girl
+- Never say "as an AI"
+- Never give advice paragraph
+- Never roleplay girl
 """
 
     try:
+        payload = {
+            "model": "llama3-70b-8192",
+            "messages": [{"role": "system", "content": system_prompt}] + user_memory[user_id],
+            "temperature": 0.7,
+            "max_tokens": 120
+        }
+
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {GROQ_API_KEY}",
                 "Content-Type": "application/json"
             },
-            json={
-                "model": "llama3-70b-8192",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                "temperature": 0.6,
-                "max_tokens": 120
-            },
-            timeout=45
+            json=payload,
+            timeout=50
         )
 
         data = response.json()
+        print("GROQ:", data)
 
-        # ---- DEBUG PRINT (IMPORTANT) ----
-        print("GROQ RESPONSE:", data)
-
-        # handle success
         if data.get("choices"):
-            reply = data["choices"][0]["message"]["content"]
-            reply = reply.strip().replace('"','')
+            reply = data["choices"][0]["message"]["content"].strip()
+            user_memory[user_id].append({"role": "assistant", "content": reply})
             return reply
 
-        # handle groq error
-        if data.get("error"):
-            print("GROQ ERROR:", data["error"])
-            return "Ek sec bhai, dobara bhej 🙂"
-
-        return "Thoda network slow hai, 10 sec baad bhej 🙂"
+        return "Ek sec bhai... dobara bhej 🙂"
 
     except Exception as e:
-        print("AI FAILED:", str(e))
-        return "Server busy hai, 15 sec baad bhej 🙂"pp.route("/webhook", methods=["POST"])
+        print("ERROR:", e)
+        return "Server busy hai, 15 sec baad bhej 🙂"
+
+
+# ---------- webhook ----------
+@app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
 
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
-        user_message = data["message"].get("text", "")
+    if "message" not in data:
+        return "ok"
 
-        if not user_message:
-            return "ok"
+    message = data["message"]
+    chat_id = message["chat"]["id"]
+    user_id = message["from"]["id"]
+    text = message.get("text", "")
 
-        # start command
-        if user_message.lower() == "/start":
-            send_message(chat_id,
-"""Hi! Main ReplyShastra hoon 🙂
+    # start command
+    if text == "/start":
+        send_message(chat_id,
+        "Hi! Main ReplyShastra hoon 🙂\n\n"
+        "GF ignore, naraz, breakup, late reply — sab handle karenge.\n\n"
+        "Apni situation simple likh 👇")
+        return "ok"
 
-GF ignore, naraz, breakup, late reply — sab handle karenge.
+    # typing animation thread
+    threading.Thread(target=send_typing, args=(chat_id, 10)).start()
 
-Apni situation simple likh 👇""")
-            return "ok"
+    # small thinking delay
+    time.sleep(6)
 
-        # typing animation
-        send_typing(chat_id, 18)
-
-        # AI reply
-        reply = get_ai_reply(user_message)
-
-        # send
-        send_message(chat_id, reply)
+    reply = get_ai_reply(user_id, text)
+    send_message(chat_id, reply)
 
     return "ok"
 
 
 @app.route("/")
 def home():
-    return "ReplyShastra Running 🚀"
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    return "ReplyShastra Running"
