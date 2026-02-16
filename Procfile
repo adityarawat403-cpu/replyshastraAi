@@ -1,1 +1,1 @@
-web: gunicorn -w 4 -k gthread -t 120 main:app
+web: gunicorn main:app
