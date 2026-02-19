@@ -32,54 +32,40 @@ def typing(chat_id, seconds=2):
     time.sleep(seconds)
 
 
-# ================= REAL BOT BRAIN =================
+# ================= BOT BRAIN =================
 SYSTEM_PROMPT = """
 You are ReplyShastra.
 
-You are NOT an AI assistant.
-You are a real Indian male best friend and relationship fixer.
+You are not an AI assistant.
+You are a real Indian male best friend who fixes relationship situations.
 
-Your only job:
-Help the user handle his girlfriend situation and save the relationship.
+Your goal:
+Understand the situation and produce a message that makes the girlfriend reply.
 
-IMPORTANT BEHAVIOR:
+Rules:
 - No lectures
-- No long advice
-- No therapist talk
-- Think deeply internally
-- Speak shortly and smartly
+- No therapy talk
+- No long explanations
+- Think internally, speak shortly
+- Natural Hinglish
+- No poetry
+- Only useful talk
 
-You must internally detect:
-• her emotion (hurt, ego, disrespect, insecurity, jealousy)
-• what message will calm her and make her reply
+You must detect her emotion:
+hurt / ego / disrespect / feeling ignored / trust break
 
-USER DOES NOT WANT ADVICE.
-USER WANTS A MESSAGE THAT WORKS.
-
-OUTPUT RULES (STRICT):
-
-1) First write 1-2 lines explaining why she is angry
-2) Then write ONE single copy-paste message for girlfriend
-3) Hinglish natural language only
-4) No poetry
-5) No multiple options
-6) No long paragraphs
-7) No robotic language
-8) Only 1 emoji allowed (❤️ or 🥺)
-
-FORMAT EXACTLY:
+Output format STRICTLY:
 
 [Why she is angry]
-(short explanation)
+(1-2 short lines max)
 
 [Send this message]
-(one single message only)
+(ONE single message only to copy paste)
 
-Never ask questions to the user.
-Never behave like a counselor.
-Behave like an experienced elder brother who fixes relationships.
+Only 1 emoji allowed (🥺 or ❤️)
+Do NOT give multiple options.
+Do NOT talk to the user in long paragraphs.
 """
-
 
 # ================= GROQ AI =================
 def ask_ai(user_text):
@@ -97,19 +83,31 @@ def ask_ai(user_text):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_text}
         ],
-        "temperature": 0.95,
-        "max_tokens": 700
+        "temperature": 0.9,
+        "max_tokens": 600
     }
 
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+        response = requests.post(url, headers=headers, json=data, timeout=40)
+
+        # DEBUG (IMPORTANT)
+        print("RAW AI RESPONSE:", response.text)
+
         res = response.json()
 
-        return res["choices"][0]["message"]["content"]
+        # ---- SAFE RESPONSE PARSER ----
+        if "choices" in res:
+            return res["choices"][0]["message"]["content"]
+
+        if "error" in res:
+            print("GROQ ERROR:", res["error"])
+            return "Thoda busy tha server... ek baar detail me fir likh."
+
+        return "Samjha nahi properly... ek baar clearly likh."
 
     except Exception as e:
-        print("AI ERROR:", e)
-        return "Bhai thoda network issue aaya... ek baar fir bhej."
+        print("AI EXCEPTION:", str(e))
+        return "Net unstable tha... ab fir se bhej."
 
 
 # ================= WEBHOOK =================
@@ -123,24 +121,25 @@ def webhook():
     chat_id = data["message"]["chat"]["id"]
     text = data["message"].get("text", "")
 
-    # START COMMAND
+    # /start command
     if text == "/start":
         send_message(chat_id,
-                     "Bhai welcome 🤝\nApni problem simple likh.\nMain tujhe exact message dunga jo tu usse bhejega.")
+        "Bhai welcome 🤝\nApni situation simple likh.\nMain tujhe exact message dunga jo tu usse bhejega.")
         return jsonify({"status": "ok"})
 
-    # typing animation
+    # typing animation realistic
     typing(chat_id, 3)
 
     # AI reply
     ai_reply = ask_ai(text)
 
-    # send
+    # send message
     send_message(chat_id, ai_reply)
 
     return jsonify({"status": "ok"})
 
 
+# ================= HOME =================
 @app.route("/", methods=["GET"])
 def home():
     return "ReplyShastra Running"
