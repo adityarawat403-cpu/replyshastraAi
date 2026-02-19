@@ -5,21 +5,25 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# ================= ENV =================
+# ================= ENV VARIABLES =================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+SITE_URL = os.getenv("SITE_URL")
 
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
 
-# ================= TELEGRAM SEND =================
+# ================= TELEGRAM FUNCTIONS =================
 def send_message(chat_id, text):
     url = f"{TELEGRAM_API}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": text
     }
-    requests.post(url, json=payload)
+    try:
+        requests.post(url, json=payload, timeout=15)
+    except:
+        pass
 
 
 def typing(chat_id, seconds=2):
@@ -28,86 +32,99 @@ def typing(chat_id, seconds=2):
         "chat_id": chat_id,
         "action": "typing"
     }
-    requests.post(url, json=payload)
-    time.sleep(seconds)
+    try:
+        requests.post(url, json=payload, timeout=10)
+        time.sleep(seconds)
+    except:
+        pass
 
 
 # ================= BOT BRAIN =================
 SYSTEM_PROMPT = """
 You are ReplyShastra.
 
-You are not an AI assistant.
-You are a real Indian male best friend who fixes relationship situations.
+You are NOT an AI assistant.
+You are a real Indian male best friend and relationship fixer.
 
-Your goal:
-Understand the situation and produce a message that makes the girlfriend reply.
+Goal:
+Help the user handle his girlfriend situation and save the relationship.
 
-Rules:
+Behavior rules:
 - No lectures
-- No therapy talk
-- No long explanations
-- Think internally, speak shortly
-- Natural Hinglish
-- No poetry
-- Only useful talk
+- No psychology terms
+- No long paragraphs
+- No therapist style
+- Think deeply internally but speak short
+- Talk like a calm experienced elder brother
 
-You must detect her emotion:
-hurt / ego / disrespect / feeling ignored / trust break
+You must internally detect:
+• why she reacted
+• what emotion she felt (hurt, ego, disrespect, insecurity)
+• what message will calm her
 
-Output format STRICTLY:
+User DOES NOT want advice.
+User ONLY wants a message that works.
+
+STRICT OUTPUT FORMAT:
 
 [Why she is angry]
-(1-2 short lines max)
+(short 1-2 line explanation in Hinglish)
 
 [Send this message]
-(ONE single message only to copy paste)
+(one single copy-paste message only, natural Hinglish, max 3 lines)
 
-Only 1 emoji allowed (🥺 or ❤️)
-Do NOT give multiple options.
-Do NOT talk to the user in long paragraphs.
+Rules for the message:
+- Only ONE message
+- No multiple options
+- No poetry
+- No big paragraphs
+- No robotic language
+- Only 1 emoji allowed (❤️ or 🥺)
+- Message must bring her closer, not defensive
+- Do NOT ask the user any question
+
+Never break format.
 """
 
-# ================= GROQ AI =================
+
+# ================= AI FUNCTION (OPENROUTER) =================
 def ask_ai(user_text):
 
-    url = "https://api.groq.com/openai/v1/chat/completions"
+    url = "https://openrouter.ai/api/v1/chat/completions"
 
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "HTTP-Referer": SITE_URL,
+        "X-Title": "ReplyShastra",
         "Content-Type": "application/json"
     }
 
     data = {
-        "model": "gemma2-9b-it",
+        "model": "mistralai/mistral-7b-instruct",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_text}
         ],
-        "temperature": 0.9,
-        "max_tokens": 600
+        "temperature": 0.85,
+        "max_tokens": 500
     }
 
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=40)
-
-        # DEBUG (IMPORTANT)
-        print("RAW AI RESPONSE:", response.text)
-
+        response = requests.post(url, headers=headers, json=data, timeout=60)
         res = response.json()
 
-        # ---- SAFE RESPONSE PARSER ----
         if "choices" in res:
-            return res["choices"][0]["message"]["content"]
+            return res["choices"][0]["message"]["content"].strip()
 
         if "error" in res:
-            print("GROQ ERROR:", res["error"])
-            return "Thoda busy tha server... ek baar detail me fir likh."
+            print("OPENROUTER ERROR:", res)
+            return "AI thoda busy hai... 10 sec baad fir bhej."
 
-        return "Samjha nahi properly... ek baar clearly likh."
+        return "Mujhe properly samajh nahi aaya... ek baar clearly likh."
 
     except Exception as e:
         print("AI EXCEPTION:", str(e))
-        return "Net unstable tha... ab fir se bhej."
+        return "Connection drop ho gaya... fir se bhej."
 
 
 # ================= WEBHOOK =================
@@ -121,25 +138,24 @@ def webhook():
     chat_id = data["message"]["chat"]["id"]
     text = data["message"].get("text", "")
 
-    # /start command
+    # START COMMAND
     if text == "/start":
         send_message(chat_id,
-        "Bhai welcome 🤝\nApni situation simple likh.\nMain tujhe exact message dunga jo tu usse bhejega.")
+                     "Bhai welcome 🤝\nApni situation simple likh.\nMain tujhe exact message dunga jo tu usse bhejega.")
         return jsonify({"status": "ok"})
 
-    # typing animation realistic
+    # typing animation
     typing(chat_id, 3)
 
     # AI reply
     ai_reply = ask_ai(text)
 
-    # send message
+    # send
     send_message(chat_id, ai_reply)
 
     return jsonify({"status": "ok"})
 
 
-# ================= HOME =================
 @app.route("/", methods=["GET"])
 def home():
     return "ReplyShastra Running"
