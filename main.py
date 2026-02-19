@@ -58,6 +58,66 @@ You are ReplyShastra.
 You are NOT an assistant.
 You are NOT a coach.
 
+from flask import Flask, request
+import requests
+import os
+import time
+
+app = Flask(__name__)
+
+# ===== TOKENS =====
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# ===== MEMORY =====
+user_memory = {}
+
+# ================= TELEGRAM TYPING =================
+def typing(chat_id):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
+        requests.post(url, json={"chat_id": chat_id, "action": "typing"}, timeout=5)
+    except:
+        pass
+
+
+# ================= SEND MESSAGE =================
+def send_message(chat_id, text):
+
+    if not text:
+        text = "Samajh gaya... thoda simple likh 🙂"
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except:
+        pass
+
+
+# ================= AI REPLY =================
+def get_ai_reply(chat_id, user_message):
+
+    # store memory
+    if chat_id not in user_memory:
+        user_memory[chat_id] = []
+
+    user_memory[chat_id].append({"role": "user", "content": user_message})
+    user_memory[chat_id] = user_memory[chat_id][-6:]  # last 6 messages
+
+    messages = [
+        {
+            "role": "system",
+            "content": """
+You are ReplyShastra.
+
+You are NOT an assistant.
+You are NOT a coach.
+
 You are a real Indian male friend helping a boy handle his girlfriend situation.
 
 Your task:
