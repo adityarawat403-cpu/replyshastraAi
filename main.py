@@ -1,83 +1,79 @@
+from flask import Flask, request, jsonify
 import os
 import requests
-from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# ================== CONFIG ==================
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# simple memory (per user)
-user_memory = {}
+# ================ AI FUNCTION ================
+def ask_ai(user_message):
 
-SYSTEM_PROMPT = """
-You are ReplyShastra.
+    system_prompt = """
+You are ReplyShastra — a calm, masculine, psychologically sharp relationship advisor for men.
 
-You are not an assistant.
-You are a calm Indian male friend helping a guy handle his girlfriend situation.
+You are NOT an AI.
+You are a real Indian elder brother type person.
 
-RULES:
-- Talk natural Hinglish
-- First understand, don't jump to solution
-- Ask short questions if needed
-- When situation becomes clear → give ONE final copy-paste message for girl
+Rules:
+- Reply in Hinglish
+- No long paragraphs
+- 2–4 short chat messages style (like WhatsApp)
+- First understand situation
+- Ask questions first before advice
+- Talk natural and human
+- No lecture
+- No therapist tone
+- Minimal emoji only sometimes 🙂
 
-FINAL MESSAGE RULE:
-Give ONLY this format when ready:
-
-[Send this message]
-(actual message he will send her, max 3 lines, soft tone, 1 emoji max ❤️ or 🥺)
-
-Do not give lectures.
-Do not give multiple options.
+Flow:
+1) emotionally connect
+2) ask what exactly happened
+3) then slowly guide
 """
 
-def ask_ai(user_id, text):
+    url = "https://api.openai.com/v1/chat/completions"
 
-    history = user_memory.get(user_id, [])
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-    history.append({"role": "user", "content": text})
+    payload = {
+        "model": "gpt-4o-mini",
+        "messages": [
+            {"role":"system","content":system_prompt},
+            {"role":"user","content":user_message}
+        ],
+        "temperature":0.7
+    }
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages += history[-8:]  # last 8 messages memory
+    response = requests.post(url, headers=headers, json=payload)
 
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "openchat/openchat-7b",
-            "messages": messages,
-            "temperature": 0.7
-        },
-        timeout=60
-    )
-
-    data = response.json()
-
-    if "choices" not in data:
-        return "Server thoda busy hai… 20 sec baad fir likh."
-
-    reply = data["choices"][0]["message"]["content"]
-
-    history.append({"role": "assistant", "content": reply})
-    user_memory[user_id] = history
+    try:
+        reply = response.json()["choices"][0]["message"]["content"]
+    except:
+        reply = "Network thoda slow hai bhai, ek baar fir likh."
 
     return reply
 
 
+# ================= CHAT API =================
 @app.route("/chat", methods=["POST"])
 def chat():
-    data = request.json
-    user_id = data.get("user_id")
-    message = data.get("message")
+    data = request.get_json()
+    user_message = data.get("message","")
 
-    reply = ask_ai(user_id, message)
+    if not user_message:
+        return jsonify({"reply":"Apni situation likh..."})
 
-    return jsonify({"reply": reply})
+    ai_reply = ask_ai(user_message)
+
+    return jsonify({"reply": ai_reply})
 
 
+# ================= ROOT =================
 @app.route("/")
 def home():
-    return "ReplyShastra Brain Running"
+    return "ReplyShastra WebApp Running"
