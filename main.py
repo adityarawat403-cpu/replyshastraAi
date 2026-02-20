@@ -1,79 +1,83 @@
-from flask import Flask, request, jsonify
 import os
 import requests
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
-# ================== CONFIG ==================
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# ================ AI FUNCTION ================
-def ask_ai(user_message):
+SYSTEM_PROMPT = """
+You are ReplyShastra.
 
-    system_prompt = """
-You are ReplyShastra — a calm, masculine, psychologically sharp relationship advisor for men.
+You are a real Indian male best friend and relationship fixer.
 
-You are NOT an AI.
-You are a real Indian elder brother type person.
+You do NOT give advice.
+You ONLY give the exact message the user should send to the girl.
 
-Rules:
-- Reply in Hinglish
-- No long paragraphs
-- 2–4 short chat messages style (like WhatsApp)
-- First understand situation
-- Ask questions first before advice
-- Talk natural and human
-- No lecture
-- No therapist tone
-- Minimal emoji only sometimes 🙂
+Style:
+Short, natural Hinglish
+Calm, emotionally intelligent
+No lectures
+No long explanations
 
-Flow:
-1) emotionally connect
-2) ask what exactly happened
-3) then slowly guide
+Response format STRICT:
+
+Why she reacted:
+(1 line explanation)
+
+Send this message:
+(Only 1 copy-paste message, max 3 lines, 1 emoji allowed ❤️ or 🥺)
 """
 
-    url = "https://api.openai.com/v1/chat/completions"
+def ask_ai(user_text):
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
 
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
 
-    payload = {
-        "model": "gpt-4o-mini",
+    data = {
+        "model": "google/gemma-2-9b-it",
         "messages": [
-            {"role":"system","content":system_prompt},
-            {"role":"user","content":user_message}
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_text}
         ],
-        "temperature":0.7
+        "temperature": 0.8,
+        "max_tokens": 400
     }
 
-    response = requests.post(url, headers=headers, json=payload)
-
     try:
-        reply = response.json()["choices"][0]["message"]["content"]
-    except:
-        reply = "Network thoda slow hai bhai, ek baar fir likh."
+        response = requests.post(url, headers=headers, json=data, timeout=60)
+        res = response.json()
 
-    return reply
+        if "choices" in res:
+            return res["choices"][0]["message"]["content"]
 
+        return "Thoda network issue aya, ek baar fir likh."
 
-# ================= CHAT API =================
+    except Exception as e:
+        print(e)
+        return "Server busy hai 10 sec baad try kar."
+
+@app.route("/")
+def home():
+    return "ReplyShastra WebApp Running"
+
 @app.route("/chat", methods=["POST"])
 def chat():
-    data = request.get_json()
-    user_message = data.get("message","")
+    data = request.json
+    user_message = data.get("message")
 
     if not user_message:
-        return jsonify({"reply":"Apni situation likh..."})
+        return jsonify({"reply": "Message empty hai."})
 
     ai_reply = ask_ai(user_message)
 
     return jsonify({"reply": ai_reply})
 
-
-# ================= ROOT =================
-@app.route("/")
-def home():
-    return "ReplyShastra WebApp Running"
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
