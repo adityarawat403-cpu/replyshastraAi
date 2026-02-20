@@ -1,94 +1,86 @@
 import os
 import time
+import json
 import requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# ================= ENV VARIABLES =================
+# ================= ENV =================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 SITE_URL = os.getenv("SITE_URL")
 
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
+# ================= MEMORY =================
+MEMORY_FILE = "memory.json"
 
-# ================= TELEGRAM FUNCTIONS =================
+def load_memory():
+    if not os.path.exists(MEMORY_FILE):
+        return {}
+    with open(MEMORY_FILE, "r") as f:
+        return json.load(f)
+
+def save_memory(data):
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(data, f)
+
+memory = load_memory()
+
+# ================= TELEGRAM =================
 def send_message(chat_id, text):
     url = f"{TELEGRAM_API}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text
-    }
+    payload = {"chat_id": chat_id, "text": text}
     try:
         requests.post(url, json=payload, timeout=15)
     except:
         pass
 
-
-def typing(chat_id, seconds=2):
+def typing(chat_id, sec=2):
     url = f"{TELEGRAM_API}/sendChatAction"
-    payload = {
-        "chat_id": chat_id,
-        "action": "typing"
-    }
+    payload = {"chat_id": chat_id, "action": "typing"}
     try:
         requests.post(url, json=payload, timeout=10)
-        time.sleep(seconds)
+        time.sleep(sec)
     except:
         pass
 
-
-# ================= BOT BRAIN =================
+# ================= SYSTEM PROMPT =================
 SYSTEM_PROMPT = """
 You are ReplyShastra.
 
-You are NOT an AI assistant.
-You are a real Indian male best friend and relationship fixer.
+You are a real calm Indian elder brother.
 
-Goal:
-Help the user handle his girlfriend situation and save the relationship.
+IMPORTANT:
+You DO NOT instantly give solution.
 
-Behavior rules:
-- No lectures
-- No psychology terms
-- No long paragraphs
-- No therapist style
-- Think deeply internally but speak short
-- Talk like a calm experienced elder brother
+You first talk to the user like a human friend.
 
-You must internally detect:
-• why she reacted
-• what emotion she felt (hurt, ego, disrespect, insecurity)
-• what message will calm her
+You must follow stages:
 
-User DOES NOT want advice.
-User ONLY wants a message that works.
+STAGE 1 → Know the situation (ask 1 simple question)
+STAGE 2 → Understand details (ask short follow up)
+STAGE 3 → Give final message for girlfriend
 
-STRICT OUTPUT FORMAT:
+Rules:
+• Very short replies
+• Hinglish only
+• No lectures
+• No psychology words
+• Never big paragraphs
 
-[Why she is angry]
-(short 1-2 line explanation in Hinglish)
+When giving final output use EXACT format:
 
-[Send this message]
-(one single copy-paste message only, natural Hinglish, max 3 lines)
+[FINAL MESSAGE]
+(only one message user will send to girl, max 2 lines, natural Hinglish, 1 emoji ❤️ or 🥺)
 
-Rules for the message:
-- Only ONE message
-- No multiple options
-- No poetry
-- No big paragraphs
-- No robotic language
-- Only 1 emoji allowed (❤️ or 🥺)
-- Message must bring her closer, not defensive
-- Do NOT ask the user any question
-
-Never break format.
+Never give multiple options.
+Never explain after final message.
 """
 
-
-# ================= AI FUNCTION (OPENROUTER) =================
-def ask_ai(user_text):
+# ================= AI =================
+def ask_ai(chat_id, user_text):
 
     url = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -99,33 +91,49 @@ def ask_ai(user_text):
         "Content-Type": "application/json"
     }
 
+    user_data = memory.get(str(chat_id), {"history": [], "stage": 1})
+
+    history = user_data["history"]
+    stage = user_data["stage"]
+
+    history.append({"role": "user", "content": user_text})
+    history = history[-10:]
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
+
     data = {
-        "model": "mistralai/mistral-7b-instruct",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_text}
-        ],
-        "temperature": 0.85,
-        "max_tokens": 500
+        "model": "openchat/openchat-3.5-0106",
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": 300
     }
 
     try:
         response = requests.post(url, headers=headers, json=data, timeout=60)
         res = response.json()
 
-        if "choices" in res:
-            return res["choices"][0]["message"]["content"].strip()
+        if "choices" not in res:
+            return "Net thoda slow hai... fir bhej 🙂"
 
-        if "error" in res:
-            print("OPENROUTER ERROR:", res)
-            return "AI thoda busy hai... 10 sec baad fir bhej."
+        reply = res["choices"][0]["message"]["content"].strip()
 
-        return "Mujhe properly samajh nahi aaya... ek baar clearly likh."
+        history.append({"role": "assistant", "content": reply})
+
+        # stage progression
+        if "[FINAL MESSAGE]" in reply:
+            stage = 3
+        else:
+            if stage < 3:
+                stage += 1
+
+        memory[str(chat_id)] = {"history": history, "stage": stage}
+        save_memory(memory)
+
+        return reply
 
     except Exception as e:
-        print("AI EXCEPTION:", str(e))
-        return "Connection drop ho gaya... fir se bhej."
-
+        print(e)
+        return "Server busy hai... 10 sec baad bhej."
 
 # ================= WEBHOOK =================
 @app.route("/webhook", methods=["POST"])
@@ -138,24 +146,20 @@ def webhook():
     chat_id = data["message"]["chat"]["id"]
     text = data["message"].get("text", "")
 
-    # START COMMAND
     if text == "/start":
+        memory[str(chat_id)] = {"history": [], "stage": 1}
+        save_memory(memory)
+
         send_message(chat_id,
-                     "Bhai welcome 🤝\nApni situation simple likh.\nMain tujhe exact message dunga jo tu usse bhejega.")
+                     "Bhai aa gaya 🤝\nTension mat le.\nSeedha bata kya hua tum dono ke beech?")
         return jsonify({"status": "ok"})
 
-    # typing animation
-    typing(chat_id, 3)
-
-    # AI reply
-    ai_reply = ask_ai(text)
-
-    # send
+    typing(chat_id, 2)
+    ai_reply = ask_ai(chat_id, text)
     send_message(chat_id, ai_reply)
 
     return jsonify({"status": "ok"})
 
-
 @app.route("/", methods=["GET"])
 def home():
-    return "ReplyShastra Running"
+    return "ReplyShastra Live"
