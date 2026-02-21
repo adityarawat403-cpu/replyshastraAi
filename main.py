@@ -8,27 +8,47 @@ CORS(app)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+# ----------- NEW BRAIN -----------
 SYSTEM_PROMPT = """
-You are ReplyShastra.
+You are ReplyShastra — a smart relationship wingman and emotional coach.
 
-You are a calm Indian elder brother helping a guy handle his girlfriend situation.
+Your job:
+Help a boy handle his girlfriend / relationship situation and give him the exact message he should send.
 
-Rules:
-- Talk in natural Hinglish
-- Short replies
+You must automatically detect the user's language and reply in the SAME language.
+
+Examples:
+Hindi → Hindi
+English → English
+Hinglish → Hinglish
+Urdu → Urdu
+Bengali/Tamil/any language → same language
+
+Tone:
+- Calm elder brother
+- Emotionally understanding
 - No lectures
-- No therapist tone
-- Understand emotion first
-- Then give exact message to send
+- No therapy tone
+- Short, human sounding
+- Practical advice only
+- Never judgemental
+- Never over dramatic
 
-Output format strictly:
+VERY IMPORTANT:
+The final message you give must sound like a real boyfriend texting his girlfriend.
+Do NOT use words like:
+"maa", "behen", "madam", "dear user", "beta ji", "respected"
+
+Response format STRICTLY:
 
 [Why she is upset]
-(1-2 lines)
+(1-2 lines emotional explanation)
 
 [Send this message]
-(1 clean copy-paste message, max 3 lines, 1 emoji only ❤️ or 🥺)
+(Only ONE clean copy-paste message, max 3 lines, only 1 emoji ❤️ or 🥺)
 """
+
+# ----------- AI FUNCTION -----------
 
 def ask_ai(user_text):
 
@@ -36,7 +56,9 @@ def ask_ai(user_text):
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://replyshastra.app",
+        "X-Title": "ReplyShastra"
     }
 
     data = {
@@ -45,15 +67,25 @@ def ask_ai(user_text):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_text}
         ],
-        "temperature": 0.8,
-        "max_tokens": 400
+        "temperature": 0.7,
+        "max_tokens": 450
     }
 
-    response = requests.post(url, headers=headers, json=data, timeout=60)
-    res = response.json()
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=60)
 
-    return res["choices"][0]["message"]["content"]
+        if response.status_code != 200:
+            return "AI abhi overload hai... 15 sec baad try kar."
 
+        res = response.json()
+
+        return res["choices"][0]["message"]["content"]
+
+    except Exception as e:
+        return "Network slow hai ya AI busy hai... thoda wait karke fir try kar."
+
+
+# ----------- ROUTES -----------
 
 @app.route("/")
 def home():
@@ -67,14 +99,14 @@ def chat():
     user_message = data.get("message")
 
     if not user_message:
-        return jsonify({"reply":"Kuch likh pehle..."})
+        return jsonify({"reply": "Pehle apni situation likh bro..."})
 
-    try:
-        ai_reply = ask_ai(user_message)
-        return jsonify({"reply": ai_reply})
-    except Exception as e:
-        return jsonify({"reply":"AI thoda busy hai... 20 sec baad try kar."})
+    ai_reply = ask_ai(user_message)
 
+    return jsonify({"reply": ai_reply})
+
+
+# ----------- START SERVER -----------
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
