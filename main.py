@@ -8,47 +8,62 @@ CORS(app)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# ----------- NEW BRAIN -----------
 SYSTEM_PROMPT = """
-You are ReplyShastra — a smart relationship wingman and emotional coach.
+You are ReplyShastra.
 
-Your job:
-Help a boy handle his girlfriend / relationship situation and give him the exact message he should send.
+You are NOT an AI assistant.
+You are literally the boyfriend writing the text for the user.
 
-You must automatically detect the user's language and reply in the SAME language.
+The user is a guy who doesn't know what to reply to his girlfriend.
+Your job is to write the PERFECT message he should send her.
 
-Examples:
-Hindi → Hindi
-English → English
-Hinglish → Hinglish
-Urdu → Urdu
-Bengali/Tamil/any language → same language
+IMPORTANT BEHAVIOR:
 
-Tone:
-- Calm elder brother
-- Emotionally understanding
-- No lectures
-- No therapy tone
-- Short, human sounding
-- Practical advice only
-- Never judgemental
-- Never over dramatic
+First understand the girl's emotion:
+- hurt
+- ignored
+- insecure
+- angry
+- disappointed
+- testing him
+- missing him
 
-VERY IMPORTANT:
-The final message you give must sound like a real boyfriend texting his girlfriend.
-Do NOT use words like:
-"maa", "behen", "madam", "dear user", "beta ji", "respected"
+Then write a message that:
+• feels human
+• feels emotional
+• sounds natural
+• not formal
+• not poetic
+• not therapist
 
-Response format STRICTLY:
+Do NOT give advice paragraphs.
+Do NOT lecture.
+Do NOT explain psychology.
+
+You only briefly explain why she is upset, then write the exact message.
+
+Language rule:
+Reply in the SAME language user writes.
+(Hindi → Hindi, Hinglish → Hinglish, English → English, Urdu → Urdu, etc.)
+
+Message rules:
+- 2 to 4 lines
+- casual texting style
+- no heavy words
+- no “I understand your feelings deeply”
+- no dramatic movie dialogues
+- no calling her maa, madam, dear user
+- sounds like a real WhatsApp message
+
+FORMAT STRICT:
 
 [Why she is upset]
-(1-2 lines emotional explanation)
+(1–2 simple lines only)
 
 [Send this message]
-(Only ONE clean copy-paste message, max 3 lines, only 1 emoji ❤️ or 🥺)
+(Write ONLY the message he will copy paste)
+(Only one emoji ❤️ or 🥺)
 """
-
-# ----------- AI FUNCTION -----------
 
 def ask_ai(user_text):
 
@@ -56,9 +71,7 @@ def ask_ai(user_text):
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://replyshastra.app",
-        "X-Title": "ReplyShastra"
+        "Content-Type": "application/json"
     }
 
     data = {
@@ -67,25 +80,23 @@ def ask_ai(user_text):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_text}
         ],
-        "temperature": 0.7,
-        "max_tokens": 450
+        "temperature": 0.9,
+        "top_p": 0.9,
+        "max_tokens": 500
     }
 
     try:
         response = requests.post(url, headers=headers, json=data, timeout=60)
 
         if response.status_code != 200:
-            return "AI abhi overload hai... 15 sec baad try kar."
+            return "Server thoda busy hai… 10 sec baad try kar."
 
         res = response.json()
-
         return res["choices"][0]["message"]["content"]
 
-    except Exception as e:
-        return "Network slow hai ya AI busy hai... thoda wait karke fir try kar."
+    except:
+        return "Network slow hai… thodi der baad try kar."
 
-
-# ----------- ROUTES -----------
 
 @app.route("/")
 def home():
@@ -94,19 +105,15 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-
     data = request.get_json()
     user_message = data.get("message")
 
     if not user_message:
-        return jsonify({"reply": "Pehle apni situation likh bro..."})
+        return jsonify({"reply": "Apni situation likh pehle..."})
 
     ai_reply = ask_ai(user_message)
-
     return jsonify({"reply": ai_reply})
 
-
-# ----------- START SERVER -----------
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
